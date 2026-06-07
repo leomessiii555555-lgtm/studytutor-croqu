@@ -15,32 +15,40 @@ SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 USER_ID = "alex_soldat"
 DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "Physik", "Chemie", "Geografie", "Informatik"]
 
-# Page Config für den cleanen Look
+# Page Config
 st.set_page_config(page_title="StudyTutor 🐊", layout="wide", initial_sidebar_state="expanded")
 
-# Minimalistisches, edles Dark-Theme im "Churchill"-Stil
+# HELLLES DESIGN (Schwarzer Text auf weißem/hellen Hintergrund)
 st.html("""
 <style>
-    /* Hintergrund und Grundschrift */
-    .stApp { background-color: #1a1c1e; color: #e2e2e6; font-family: 'Inter', sans-serif; }
+    /* Heller Hauptbereich */
+    .stApp { background-color: #f8f9fa; color: #111111; font-family: 'Inter', sans-serif; }
     
-    /* Edle Sidebar */
-    [data-testid="stSidebar"] { background-color: #111315; border-right: 1px solid #2c3136; }
+    /* Helle Sidebar */
+    [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e0e0e0; }
     
-    /* Schickere Boxen für die Aufgaben links */
+    /* Titel und Texte in der Sidebar dunkel machen */
+    [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span {
+        color: #111111 !important;
+    }
+    
+    /* Gut lesbare, helle Boxen für die Aufgaben links */
     .dashboard-box {
-        background-color: #22262a;
+        background-color: #f1f3f5;
+        color: #111111;
         border-radius: 8px;
         padding: 12px;
         margin-bottom: 10px;
-        border-left: 4px solid #4a90e2;
+        border-left: 5px solid #0056b3;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    .test-box { border-left-color: #ff4d4d; }
-    .week-box { border-left-color: #ffb300; }
-    .plan-box { border-left-color: #2ed573; }
+    .test-box { border-left-color: #dc3545; background-color: #fff5f5; }     /* Leichtes Rot */
+    .week-box { border-left-color: #ffc107; background-color: #fffbeb; }     /* Leichtes Gelb */
+    .plan-box { border-left-color: #28a745; background-color: #f4fbf7; }     /* Leichtes Grün */
     
-    /* Chat-Eingabe schöner platzieren */
-    div[data-testid="stChatInput"] { background-color: #22262a; border-radius: 20px; }
+    /* Chat-Eingabe anpassen */
+    div[data-testid="stChatInput"] { background-color: #ffffff; border: 1px solid #ced4da; border-radius: 20px; }
+    div[data-testid="stChatInput"] textarea { color: #111111 !important; }
 </style>
 """)
 
@@ -110,7 +118,7 @@ if "initialized" not in st.session_state:
     st.session_state.initialized = True
 
 # =========================================================================
-# SIDEBAR LINKS (Ausklappbares Dashboard)
+# SIDEBAR LINKS (Ausklappbares Dashboard in Hell)
 # =========================================================================
 with st.sidebar:
     st.title("📋 Übersicht")
@@ -123,7 +131,7 @@ with st.sidebar:
         st.caption("Keine Tests eingetragen. 🙌")
     else:
         for t in tests:
-            st.html(f"<div class='dashboard-box test-box'><strong>{t['title']}</strong><br><small>{t['notes']}</small></div>")
+            st.html(f"<div class='dashboard-box test-box'><strong>{t['title']}</strong><br>{t['notes']}</div>")
             
     st.write("---")
     
@@ -134,7 +142,7 @@ with st.sidebar:
         st.caption("Alles ruhig nächste Woche. 😎")
     else:
         for w in next_week:
-            st.html(f"<div class='dashboard-box week-box'><strong>{w['title']}</strong><br><small>{w['notes']}</small></div>")
+            st.html(f"<div class='dashboard-box week-box'><strong>{w['title']}</strong><br>{w['notes']}</div>")
             
     st.write("---")
     
@@ -145,11 +153,11 @@ with st.sidebar:
         st.caption("Noch kein aktiver Lernplan.")
     else:
         for p in plan:
-            st.html(f"<div class='dashboard-box plan-box'><strong>{p['title']}</strong><br><small>{p['notes']}</small></div>")
+            st.html(f"<div class='dashboard-box plan-box'><strong>{p['title']}</strong><br>{p['notes']}</div>")
 
     st.write("---")
     
-    # Stundenplan Upload dezent am Ende der Sidebar platziert
+    # Tools am Ende der Sidebar
     with st.expander("⚙️ Tools & Stundenplan"):
         uploaded_image = st.file_uploader("Stundenplan Foto", type=["jpg", "jpeg", "png"])
         if uploaded_image and st.button("✨ Fächer einlesen"):
@@ -174,12 +182,12 @@ with st.sidebar:
             st.rerun()
 
 # =========================================================================
-# RECHTER HAUPTBEREICH (Der elegante Chat)
+# RECHTER HAUPTBEREICH (Der elegante helle Chat)
 # =========================================================================
 st.title("🐊 StudyTutor")
-st.caption("Ein aufgeräumter Workspace für deinen Lernerfolg.")
+st.caption("Dein übersichtlicher Workspace im Light-Mode.")
 
-# Container für den Chat-Verlauf (damit es clean aussieht)
+# Chat-Verlauf anzeigen
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
@@ -190,7 +198,7 @@ if user_input := st.chat_input("Schreib eine neue Aufgabe oder chatte..."):
     with st.chat_message("user"):
         st.write(user_input)
         
-    # Automatisch filtern, in welche Kategorie links es gehört
+    # Automatisch filtern
     new_task = extract_task_from_text(user_input, st.session_state.subjects)
     if new_task:
         st.session_state.tasks.insert(0, new_task)

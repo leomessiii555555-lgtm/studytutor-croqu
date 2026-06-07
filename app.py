@@ -4,7 +4,6 @@ import requests
 import json
 import base64
 from datetime import datetime
-from audio_recorder_streamlit import audio_recorder
 
 # =========================================================================
 # SICHERHEITS-KONFIGURATION
@@ -19,7 +18,7 @@ DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "P
 # Page Config
 st.set_page_config(page_title="StudyTutor 🐊", layout="wide", initial_sidebar_state="expanded")
 
-# EDLES, HELLLES DESIGN MIT CLEANER RECORD-BUTTON-INTEGRATION
+# EDLES, HELLES DESIGN (Churchill-Style)
 st.html("""
 <style>
     .stApp { background-color: #f8f9fa; color: #111111; font-family: 'Inter', sans-serif; }
@@ -40,19 +39,8 @@ st.html("""
     .week-box { border-left-color: #ffc107; background-color: #fffbeb; }
     .plan-box { border-left-color: #28a745; background-color: #f4fbf7; }
     
-    /* Layout-Fix für die Chat-Eingabezeile */
     div[data-testid="stChatInput"] { background-color: #ffffff; border: 1px solid #ced4da; border-radius: 20px; }
     div[data-testid="stChatInput"] textarea { color: #111111 !important; }
-    
-    /* Styling für das clean integrierte Mikrofon */
-    .mic-wrapper {
-        display: flex;
-        align-items: center;
-        justify-content: flex-end;
-        padding-top: 5px;
-    }
-    /* Versteckt den hässlichen Standard-Text des Rekorders */
-    span[data-testid="stMarkdownContainer"] { color: transparent !important; font-size: 0px !important; }
 </style>
 """)
 
@@ -85,27 +73,17 @@ def save_to_supabase(state_data):
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode("utf-8")
 
-# Sprache zu Text umwandeln mit OpenAI Whisper (Fehlerkorrigiert)
-def transcribe_audio(audio_bytes):
-    # Verhindert den Absturz, falls die Datei zu klein ist (unter 1000 Bytes ist kein Ton da)
-    if len(audio_bytes) < 1000:
-        return None
-        
+# Sprache zu Text umwandeln mit OpenAI Whisper
+def transcribe_audio(audio_file):
     try:
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        with open("temp_audio.mp3", "wb") as f:
-            f.write(audio_bytes)
-        
-        with open("temp_audio.mp3", "rb") as audio_file:
-            transcript = client.audio.transcriptions.create(
-                model="whisper-1", 
-                file=audio_file
-            )
+        transcript = client.audio.transcriptions.create(
+            model="whisper-1", 
+            file=audio_file
+        )
         return transcript.text
     except Exception as e:
-        # Kurze Audio-Fehler im Hintergrund abfangen, ohne die UI zu crashen
-        if "audio_too_short" not in str(e):
-            st.error(f"Fehler bei der Spracherkennung: {str(e)}")
+        st.error(f"Fehler bei der Spracherkennung: {str(e)}")
         return None
 
 def extract_task_from_text(text, subjects_list):
@@ -140,7 +118,7 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hallo! 🐊 Dein Workspace ist bereit. Du kannst tippen oder das Mikrofon nutzen."}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hallo! 🐊 Dein fehlerfreier Workspace ist bereit."}]
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
@@ -207,7 +185,7 @@ with st.sidebar:
             st.rerun()
 
 # =========================================================================
-# RECHTER HAUPTBEREICH (Elegantes Layout)
+# RECHTER HAUPTBEREICH
 # =========================================================================
 st.title("🐊 StudyTutor")
 
@@ -216,31 +194,23 @@ for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# DIE NEUE, SAUBERE INTEGRATION (Eingabezeile und Mikrofon nebeneinander)
 st.write("---")
-col_input, col_mic = st.columns([12, 1])
 
-with col_input:
-    # Normale Texteingabe
-    if text_input := st.chat_input("Schreib eine neue Aufgabe oder chatte..."):
-        user_input = text_input
+# Audio-Eingabe
+audio_file = st.audio_input("Sprachbefehl aufnehmen")
 
-with col_mic:
-    # Das Mikrofon wird hier dezent ohne Text als Icon angezeigt
-    st.html("<div class='mic-wrapper'>")
-    audio_bytes = audio_recorder(
-        text="", 
-        recording_color="#e74c3c", 
-        neutral_color="#2c3e50",
-        icon_size="2x"
-    )
-    st.html("</div>")
-
-if audio_bytes:
-    with st.spinner(""):
-        text_from_speech = transcribe_audio(audio_bytes)
+if audio_file:
+    with st.spinner("Wandle Sprache in Text um... 🎙️"):
+        text_from_speech = transcribe_audio(audio_file)
         if text_from_speech:
-            user_input = text_from_speech
+            # FILTER: Ignoriert Geister-Eingaben wie "you" oder leeren Text
+            clean_check = text_from_speech.strip().strip('.').strip().lower()
+            if clean_check not in ["you", "you.", ""]:
+                user_input = text_from_speech
+
+# Normale Chat-Eingabe
+if text_input := st.chat_input("Schreib eine neue Aufgabe oder chatte..."):
+    user_input = text_input
 
 # Verarbeitung
 if user_input:

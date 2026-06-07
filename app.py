@@ -2,19 +2,20 @@ import streamlit as st
 import openai
 import requests
 import json
-import re
+import base64
 from datetime import datetime
 
-# ==========================================
-# CONFIGURATION (Trage hier deine echten Keys ein!)
-# ==========================================
-OPENAI_API_KEY = "sk-proj-DEIN_OPENAI_KEY"
-SUPABASE_URL = "https://DEIN_PROJEKT.supabase.co"
-SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+# =========================================================================
+# SICHERHEITS-KONFIGURATION (Holt die Keys unsichtbar aus Streamlit Secrets)
+# =========================================================================
+OPENAI_API_KEY = st.secrets["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"]
+SUPABASE_URL = st.secrets["https://supabase.com/dashboard/project/ibatckroshtdwswmefgt/settings/api-keys/legacy"]
+SUPABASE_ANON_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImliYXRja3Jvc2h0ZHdzd21lZmd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4NTMyNDEsImV4cCI6MjA5NjQyOTI0MX0.sRr1xCoDUkmmAaaHaPRVNc7hc7KXkmkHC1c6BIXedCo"]
+
 USER_ID = "alex_soldat"
 
-# Fächerliste für die Validierung
-SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "Physik", "Chemie", "Geografie", "Informatik"]
+# Standard-Fächer (falls kein Stundenplan hochgeladen wurde)
+DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "Physik", "Chemie", "Geografie", "Informatik"]
 
 st.set_page_config(page_title="StudyTutor Croque 🐊", layout="wide")
 
@@ -52,16 +53,18 @@ def save_to_supabase(state_data):
     except:
         pass
 
+# Bild in Base64 umwandeln, damit OpenAI es lesen kann
+def encode_image(uploaded_file):
+    return base64.b64encode(uploaded_file.read()).decode("utf-8")
+
 # Intelligentere Extraktion für Aufgaben direkt in Python
-def extract_task_from_text(text):
+def extract_task_from_text(text, subjects_list):
     clean_text = text.lower()
-    # Behebt den Tippfehler ",athe" -> "mathe"
     if "athe" in clean_text and "mathe" not in clean_text:
         clean_text = clean_text.replace("athe", "mathe")
     
-    # Prüfen, welches Fach erwähnt wurde
     found_subject = None
-    for sub in SUBJECTS:
+    for sub in subjects_list:
         if sub.lower() in clean_text:
             found_subject = sub
             break
@@ -82,12 +85,14 @@ if "initialized" not in st.session_state:
     if db_state:
         st.session_state.tasks = db_state.get("tasks", [])
         st.session_state.messages = db_state.get("messages", [])
+        st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hallo Alex! 🐊 Ich bin dein Lerncoach Croque. Schreib mir einfach, was in der Schule ansteht!"}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hallo Alex! 🐊 Ich bin dein Lerncoach Croque. Du kannst mir jetzt links auch ein Foto deines Stundenplans hochladen!"}]
+        st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
-# UI Layout
+# UI Layout (Zwei Spalten)
 col_chat, col_list = st.columns([2, 1])
 
 with col_chat:
@@ -104,8 +109,7 @@ with col_chat:
         with st.chat_message("user"):
             st.write(user_input)
             
-        # Task-Extraktion triggern bevor ChatGPT antwortet
-        new_task = extract_task_from_text(user_input)
+        new_task = extract_task_from_text(user_input, st.session_state.subjects)
         if new_task:
             st.session_state.tasks.insert(0, new_task)
             
@@ -120,7 +124,9 @@ with col_chat:
                     Antworte kurz (max. 3 Sätze), präzise und übersichtlich auf Deutsch mit passenden Emojis.
 
                     Echte Daten aus der Datenbank:
-                    {json.dumps(st.session_state.tasks) if st.session_state.tasks else "LISTE IST LEER"}"""
+                    {json.dumps(st.session_state.tasks) if st.session_state.tasks else "LISTE IST LEER"}
+                    
+                    Alex hat folgende Schulfächer: {', '.join(st.session_state.subjects)}"""
                     
                     response = client.chat.completions.create(
                         model="gpt-4o-mini",
@@ -135,19 +141,70 @@ with col_chat:
                     st.session_state.messages.append({"role": "assistant", "content": ai_answer})
                     
                     # In Supabase sichern
-                    current_state = {"tasks": st.session_state.tasks, "messages": st.session_state.messages}
+                    current_state = {
+                        "tasks": st.session_state.tasks, 
+                        "messages": st.session_state.messages,
+                        "subjects": st.session_state.subjects
+                    }
                     save_to_supabase(current_state)
                 except Exception as e:
-                    st.error(f"Fehler: Verbindung zu OpenAI oder Supabase fehlgeschlagen. ({str(e)})")
+                    st.error(f"Fehler: Verbindung fehlgeschlagen. ({str(e)})")
         st.rerun()
 
 with col_list:
-    st.header("📋 Aufgaben & Tests")
+    st.header("📋 Stundenplan & Aufgaben")
     
-    # Button zum Zurücksetzen der Liste (falls man aufräumen will)
+    # STUNDENPLAN FOTO UPLOAD HIER:
+    st.subheader("📅 Stundenplan hochladen")
+    uploaded_image = st.file_uploader("Foto vom Stundenplan auswählen", type=["jpg", "jpeg", "png"])
+    
+    if uploaded_image:
+        if st.button("✨ Fächer aus Stundenplan auslesen"):
+            with st.spinner("Croque liest den Stundenplan... 👁️🐊"):
+                try:
+                    base64_image = encode_image(uploaded_image)
+                    client = openai.OpenAI(api_key=OPENAI_API_KEY)
+                    
+                    # Wir schicken das Bild an OpenAI und fragen nach den Fächern
+                    img_response = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[
+                            {
+                                "role": "user",
+                                "content": [
+                                    {"type": "text", "text": "Lies dieses Bild eines Stundenplans. Extrahiere alle eindeutigen Schulfächer (z.B. Mathe, Deutsch, Biologie...) als reine, kommagetrennte Liste. Antworte NUR mit den Fächern, getrennt durch ein Komma, kein anderer Text!"},
+                                    {
+                                        "type": "image_url",
+                                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+                                    }
+                                ]
+                            }
+                        ]
+                    )
+                    
+                    extracted_text = img_response.choices[0].message.content
+                    # Liste säubern und im Speicher sichern
+                    new_subs = [s.strip() for s in extracted_text.split(",") if s.strip()]
+                    if new_subs:
+                        st.session_state.subjects = new_subs
+                        st.success(f"Erkannte Fächer: {', '.join(new_subs)}")
+                        
+                        # In Supabase sichern
+                        current_state = {
+                            "tasks": st.session_state.tasks, 
+                            "messages": st.session_state.messages,
+                            "subjects": st.session_state.subjects
+                        }
+                        save_to_supabase(current_state)
+                except Exception as e:
+                    st.error(f"Fehler beim Lesen des Bildes: {str(e)}")
+                    
+    st.write(f"**Deine aktuellen Fächer:** {', '.join(st.session_state.subjects)}")
+    st.write("---")
+    
     if st.button("🗑️ Alle Aufgaben löschen"):
         st.session_state.tasks = []
-        save_to_supabase({"tasks": [], "messages": st.session_state.messages})
+        save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects})
         st.rerun()
         
     st.write("---")

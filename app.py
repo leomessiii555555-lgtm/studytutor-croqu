@@ -4,6 +4,8 @@ import requests
 import json
 import base64
 from datetime import datetime
+# HIER IST DAS NEUE MIKROFON-PAKET:
+from streamlit_mic_recorder import mic_recorder
 
 # =========================================================================
 # SICHERHEITS-KONFIGURATION
@@ -18,21 +20,14 @@ DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "P
 # Page Config
 st.set_page_config(page_title="StudyTutor 🐊", layout="wide", initial_sidebar_state="expanded")
 
-# HELLLES DESIGN (Schwarzer Text auf weißem/hellen Hintergrund)
+# HELLLES DESIGN
 st.html("""
 <style>
-    /* Heller Hauptbereich */
     .stApp { background-color: #f8f9fa; color: #111111; font-family: 'Inter', sans-serif; }
-    
-    /* Helle Sidebar */
     [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #e0e0e0; }
-    
-    /* Titel und Texte in der Sidebar dunkel machen */
     [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span {
         color: #111111 !important;
     }
-    
-    /* Gut lesbare, helle Boxen für die Aufgaben links */
     .dashboard-box {
         background-color: #f1f3f5;
         color: #111111;
@@ -42,13 +37,15 @@ st.html("""
         border-left: 5px solid #0056b3;
         box-shadow: 0 1px 3px rgba(0,0,0,0.05);
     }
-    .test-box { border-left-color: #dc3545; background-color: #fff5f5; }     /* Leichtes Rot */
-    .week-box { border-left-color: #ffc107; background-color: #fffbeb; }     /* Leichtes Gelb */
-    .plan-box { border-left-color: #28a745; background-color: #f4fbf7; }     /* Leichtes Grün */
+    .test-box { border-left-color: #dc3545; background-color: #fff5f5; }
+    .week-box { border-left-color: #ffc107; background-color: #fffbeb; }
+    .plan-box { border-left-color: #28a745; background-color: #f4fbf7; }
     
-    /* Chat-Eingabe anpassen */
     div[data-testid="stChatInput"] { background-color: #ffffff; border: 1px solid #ced4da; border-radius: 20px; }
     div[data-testid="stChatInput"] textarea { color: #111111 !important; }
+    
+    /* Styling für den Mikrofon-Bereich */
+    .mic-container { background-color: #ffffff; padding: 10px; border-radius: 10px; border: 1px solid #ced4da; margin-top: 10px; }
 </style>
 """)
 
@@ -80,6 +77,24 @@ def save_to_supabase(state_data):
 
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode("utf-8")
+
+# Sprache zu Text umwandeln mit OpenAI Whisper
+def transcribe_audio(audio_bytes):
+    try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        # Temporäre Datei für das Audio erstellen
+        with open("temp_audio.wav", "wb") as f:
+            f.write(audio_bytes)
+        
+        with open("temp_audio.wav", "rb") as audio_file:
+            transcript = client.audio.transcriptions.create(
+                model="whisper-1", 
+                file=audio_file
+            )
+        return transcript.text
+    except Exception as e:
+        st.error(f"Fehler bei der Spracherkennung: {str(e)}")
+        return None
 
 def extract_task_from_text(text, subjects_list):
     clean_text = text.lower()
@@ -113,18 +128,20 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hallo! 🐊 Dein neuer, cleaner Lerncoach ist startklar. Schreib mir einfach, was ansteht!"}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hallo! 🐊 Dein Lerncoach ist bereit. Du kannst jetzt tippen oder das Mikrofon benutzen!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
+# Verarbeite Eingaben (Egal ob Text oder Sprache)
+user_input = None
+
 # =========================================================================
-# SIDEBAR LINKS (Ausklappbares Dashboard in Hell)
+# SIDEBAR LINKS
 # =========================================================================
 with st.sidebar:
     st.title("📋 Übersicht")
     st.write("---")
     
-    # 1. TESTS & PRÜFUNGEN
     st.subheader("🔴 Anstehende Tests")
     tests = [t for t in st.session_state.tasks if t.get("type") == "Test"]
     if not tests:
@@ -135,7 +152,6 @@ with st.sidebar:
             
     st.write("---")
     
-    # 2. NÄCHSTE WOCHE
     st.subheader("🟡 Nächste Woche")
     next_week = [t for t in st.session_state.tasks if t.get("type") == "Nächste Woche" or t.get("type") == "Hausaufgabe"]
     if not next_week:
@@ -146,7 +162,6 @@ with st.sidebar:
             
     st.write("---")
     
-    # 3. LERNPLAN
     st.subheader("🟢 Mein Lernplan")
     plan = [t for t in st.session_state.tasks if t.get("type") == "Lernplan"]
     if not plan:
@@ -157,7 +172,6 @@ with st.sidebar:
 
     st.write("---")
     
-    # Tools am Ende der Sidebar
     with st.expander("⚙️ Tools & Stundenplan"):
         uploaded_image = st.file_uploader("Stundenplan Foto", type=["jpg", "jpeg", "png"])
         if uploaded_image and st.button("✨ Fächer einlesen"):
@@ -182,22 +196,39 @@ with st.sidebar:
             st.rerun()
 
 # =========================================================================
-# RECHTER HAUPTBEREICH (Der elegante helle Chat)
+# RECHTER HAUPTBEREICH (Chat & Mikrofon)
 # =========================================================================
 st.title("🐊 StudyTutor")
-st.caption("Dein übersichtlicher Workspace im Light-Mode.")
+st.caption("Dein Workspace mit Tastatur- und Spracheingabe.")
 
 # Chat-Verlauf anzeigen
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# Chat-Eingabe
-if user_input := st.chat_input("Schreib eine neue Aufgabe oder chatte..."):
+# MIKROFON UPGRADE HIER:
+st.write("---")
+col_mic_info, col_mic_button = st.columns([3, 1])
+with col_mic_info:
+    st.caption("🎤 Klicke auf 'Start recording', sprich deine Aufgabe und klicke auf 'Stop'.")
+with col_mic_button:
+    # Das echte Mikrofon-Widget
+    audio_record = mic_recorder(start_prompt="🎤 Start", stop_prompt="🛑 Stop", key="mic")
+
+if audio_record:
+    with st.spinner("Wandle Sprache in Text um... 🎙️"):
+        text_from_speech = transcribe_audio(audio_record['bytes'])
+        if text_from_speech:
+            user_input = text_from_speech
+
+# Normale Chat-Eingabe (falls man tippen will)
+if text_input := st.chat_input("Schreib eine neue Aufgabe oder chatte..."):
+    user_input = text_input
+
+# Wenn eine Eingabe da ist (entweder durch Tippen ODER Sprechen), verarbeiten:
+if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
-    with st.chat_message("user"):
-        st.write(user_input)
-        
+    
     # Automatisch filtern
     new_task = extract_task_from_text(user_input, st.session_state.subjects)
     if new_task:
@@ -221,7 +252,6 @@ if user_input := st.chat_input("Schreib eine neue Aufgabe oder chatte..."):
                     temperature=0.2
                 )
                 ai_answer = response.choices[0].message.content
-                st.write(ai_answer)
                 st.session_state.messages.append({"role": "assistant", "content": ai_answer})
                 
                 # In Datenbank sichern

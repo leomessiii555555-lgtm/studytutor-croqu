@@ -76,7 +76,7 @@ st.html("""
 """)
 
 # =========================================================================
-# ABSOLUT STABILES DB-SYSTEM (ERST LADEN, DANN ARBEITEN)
+# ABSOLUT STABILES DB-SYSTEM
 # =========================================================================
 def load_from_supabase():
     headers = {"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"}
@@ -121,11 +121,15 @@ def transcribe_audio(audio_file):
 def extract_task_with_ai(text, subjects_list):
     try:
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        prompt = f"""Analysiere diesen Schul-Text. Ordne ihn einem Fach zu: {', '.join(subjects_list)}.
-        (Abkürzungen korrigieren: 'geo' -> 'Geografie', 'mathe' -> 'Mathe').
-        Bestimme den Typ: 'Test', 'Lernplan' oder 'Nächste Woche' (Wenn der User 'nächste Woche' sagt, nimm zwingend das!).
+        prompt = f"""Analysiere diesen Schul-Text. Ordne ihn zwingend einem passenden Fach zu: {', '.join(subjects_list)}.
+        (Korrgiere Abkürzungen: 'geo' -> 'Geografie', 'mathe' -> 'Mathe', 'bio' -> 'Biologie', 'deutsch' -> 'Deutsch').
         
-        Antworte NUR mit JSON:
+        Bestimme den Typ ganz genau:
+        - Wenn das Wort 'Test', 'Arbeit', 'Prüfung', 'Schularbeit' oder 'Ex' vorkommt -> IMMER 'Test'.
+        - Wenn der User 'nächste Woche' oder 'Hausaufgabe' sagt -> 'Nächste Woche'.
+        - Wenn es um einen Plan oder langfristiges Lernen geht -> 'Lernplan'.
+        
+        Antworte AUSSCHLIESSLICH mit einem gültigen JSON-Objekt, kein Markdown, keine Codeblocks:
         {{"title": "Fachname", "type": "Test" oder "Nächste Woche" oder "Lernplan", "summary": "Kurztitel max 4 Wörter"}}"""
         
         response = client.chat.completions.create(
@@ -133,18 +137,19 @@ def extract_task_with_ai(text, subjects_list):
             messages=[{"role": "user", "content": prompt}],
             temperature=0.1
         )
-        data = json.loads(response.choices[0].message.content.strip())
+        res_text = response.choices[0].message.content.strip().replace("```json", "").replace("```", "")
+        data = json.loads(res_text)
         return {
             "title": data.get("title", "Allgemein"),
             "type": data.get("type", "Nächste Woche"),
             "summary": data.get("summary", "Neue Aufgabe"),
             "notes": text,
-            "id": str(datetime.utcnow().timestamp()) # Eindeutige ID für Klick-Aktionen
+            "id": str(datetime.utcnow().timestamp())
         }
     except:
         return {"title": "Aufgabe", "type": "Nächste Woche", "summary": "Neue Aufgabe", "notes": text, "id": str(datetime.utcnow().timestamp())}
 
-# Safe Initialisierung vor jedem Render-Zyklus
+# Safe Initialisierung
 if "initialized" not in st.session_state:
     db_state = load_from_supabase()
     if db_state:
@@ -153,29 +158,75 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Dein neuer Premium-Workspace steht. Sprich oder schreib mir einfach!"}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Dein fehlerfreier Premium-Workspace steht. Sprich oder schreib mir einfach!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
 user_input = None
 
 # =========================================================================
-# SIDEBAR: INTERAKTIVES DASHBOARD-ZEUG
+# FRÜHZEITIGE EINGABE-ERFASSUNG (BEHEBT DAS EINTRAGUNGS-PROBLEM)
+# =========================================================================
+# 1. Audio-Input Check
+audio_file = st.sidebar.audio_input("🎙️ Sprachbefehl aufnehmen", key="main_audio_input")
+if audio_file:
+    if st.sidebar.button("🚀 Sprachnachricht senden", use_container_width=True):
+        text_from_speech = transcribe_audio(audio_file)
+        if text_from_speech and text_from_speech.strip().lower() not in ["you", "you.", ""]:
+            user_input = text_from_speech
+
+# 2. Text-Input Check (unten platziert, aber Variable oben abgefangen)
+# (Der eigentliche Chat-Input-Call befindet sich weiter unten im Code)
+
+# Sofortige Verarbeitung, wenn eine Eingabe (Text oder Sprache) vorliegt
+if user_input:
+    # DUPLIKAT-SCHUTZ: Prüfen, ob die exakt gleiche Notiz schon existiert
+    is_duplicate = any(t.get("notes", "").strip().lower() == user_input.strip().lower() for t in st.session_state.tasks)
+    
+    if not is_duplicate:
+        new_task = extract_task_with_ai(user_input, st.session_state.subjects)
+        if new_task:
+            st.session_state.tasks.insert(0, new_task)
+            
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    
+    try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        sys_prompt = f"Du bist ein minimalistischer KI-Lerncoach. Antworte in maximal 2 Sätzen. Bestätige kurz, dass die Aufgabe einsortiert wurde. Aktuelle Liste: {json.dumps(st.session_state.tasks)}"
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_input}],
+            temperature=0.2
+        )
+        ai_answer = response.choices[0].message.content
+        st.session_state.messages.append({"role": "assistant", "content": ai_answer})
+        
+        # Direkt in Supabase absichern
+        save_to_supabase({
+            "tasks": st.session_state.tasks, 
+            "messages": st.session_state.messages,
+            "subjects": st.session_state.subjects
+        })
+    except:
+        pass
+    st.rerun()
+
+# =========================================================================
+# SIDEBAR UI
 # =========================================================================
 with st.sidebar:
-    st.title("🐊 StudyTutor")
-    st.caption("Premium Workspace v2")
+    st.title("StudyTutor 🐊")
     st.write("---")
     
     st.subheader("📚 Meine Fächer")
     for sub in st.session_state.subjects:
-        count = len([t for t in st.session_state.tasks if t.get("title") == sub])
+        count = len([t for t in st.session_state.tasks if t.get("title").lower() == sub.lower()])
         badge_text = f"{sub} ({count})" if count > 0 else sub
         st.html(f"<div class='subject-badge'>{badge_text}</div>")
         
     st.write("---")
     
-    with st.expander("⚙️ Einstellungen"):
+    with st.expander("⚙️ System-Tools"):
         uploaded_image = st.file_uploader("Stundenplan einscannen", type=["jpg", "jpeg", "png"])
         if uploaded_image and st.button("Fächer aktualisieren"):
             with st.spinner("Lese Fächer..."):
@@ -191,34 +242,47 @@ with st.sidebar:
                     st.rerun()
                 except:
                     pass
-        if st.button("🗑️ Gesamte App zurücksetzen"):
+        if st.button("🗑️ App komplett zurücksetzen"):
             st.session_state.tasks = []
             st.session_state.messages = [{"role": "assistant", "content": "App wurde zurückgesetzt."}]
             save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects})
             st.rerun()
 
 # =========================================================================
-# RECHTER HAUPTBEREICH: MODERNES RESPONSIVE KANBAN-BOARD
+# RECHTER HAUPTBEREICH: DAS RESPONSIVE KANBAN-BOARD
 # =========================================================================
 
-# Sektion 1: Der edle Chat-Bereich (wird kompakt gehalten)
-with st.expander("💬 KI-Lerncoach & Sprachassistent", expanded=True):
-    for msg in st.session_state.messages[-4:]: # Zeige immer nur die letzten 4 Nachrichten für maximale Übersicht
+# Sektion 1: Der edle Chat-Bereich (kompakt auf die letzten 3 Nachrichten limitiert)
+with st.expander("💬 KI-Lerncoach Chatverlauf", expanded=True):
+    for msg in st.session_state.messages[-3:]:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
             
-    # Eingaben nebeneinander platzieren
-    c_audio, c_text = st.columns([1, 3])
-    with c_audio:
-        audio_file = st.audio_input("Per Sprache hinzufügen")
-        if audio_file:
-            if st.button("🚀 Sprache senden", use_container_width=True):
-                text_from_speech = transcribe_audio(audio_file)
-                if text_from_speech and text_from_speech.strip().lower() not in ["you", "you."]:
-                    user_input = text_from_speech
-    with c_text:
-        if text_input := st.chat_input("Schreib mir eine neue Aufgabe oder stelle eine Frage..."):
-            user_input = text_input
+    if text_input := st.chat_input("Schreib eine neue Aufgabe (z.B. 'Mathe Test am Freitag')..."):
+        # Setzt die Variable für die Verarbeitung ganz oben und triggert einen Rerun
+        st.session_state["text_processing_input"] = text_input
+        
+if "text_processing_input" in st.session_state:
+    user_input = st.session_state.pop("text_processing_input")
+    is_duplicate = any(t.get("notes", "").strip().lower() == user_input.strip().lower() for t in st.session_state.tasks)
+    if not is_duplicate:
+        new_task = extract_task_with_ai(user_input, st.session_state.subjects)
+        if new_task:
+            st.session_state.tasks.insert(0, new_task)
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        sys_prompt = f"Du bist ein minimalistischer KI-Lerncoach. Antworte in maximal 2 Sätzen. Bestätige kurz die Eintragung. Liste: {json.dumps(st.session_state.tasks)}"
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_input}],
+            temperature=0.2
+        )
+        st.session_state.messages.append({"role": "assistant", "content": response.choices[0].message.content})
+        save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
+    except:
+        pass
+    st.rerun()
 
 # Sektion 2: Das professionelle Kanban Board (Die 3 Spalten nebeneinander)
 st.write("### 📊 Mein aktueller Workspace")
@@ -240,7 +304,7 @@ with col2:
     st.html("<div class='column-header'><span style='color: #f59e0b;'>🟡</span> Nächste Woche</div>")
     next_week = [t for t in st.session_state.tasks if t.get("type") == "Nächste Woche"]
     if not next_week:
-        st.caption("Alles erledigt für die Woche! 😎")
+        st.caption("Alles ruhig für die nächste Woche! 😎")
     for w in next_week:
         st.html(f"<div class='task-card' style='border-left-color: #f59e0b;'><div class='card-title'>{w['title']}</div><div class='card-summary'>{w['summary']}</div></div>")
         with st.popover("Details öffnen", use_container_width=True):
@@ -256,36 +320,3 @@ with col3:
         st.html(f"<div class='task-card' style='border-left-color: #10b981;'><div class='card-title'>{p['title']}</div><div class='card-summary'>{p['summary']}</div></div>")
         with st.popover("Details öffnen", use_container_width=True):
             st.write(f"**Ganzes Sprachprotokoll:** {p['notes']}")
-
-# =========================================================================
-# ENGINE FÜR DIE EINGABE-VERARBEITUNG & BASE-SPEICHERUNG
-# =========================================================================
-if user_input:
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    
-    # Extrahiere Daten mit verbesserter KI-Logik
-    new_task = extract_task_with_ai(user_input, st.session_state.subjects)
-    if new_task:
-        st.session_state.tasks.insert(0, new_task)
-        
-    try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        sys_prompt = f"Du bist ein minimalistischer KI-Lerncoach. Antworte in maximal 2 Sätzen. Beziehe dich auf die Liste: {json.dumps(st.session_state.tasks)}"
-        response = client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[{"role": "system", "content": sys_prompt}, {"role": "user", "content": user_input}],
-            temperature=0.2
-        )
-        ai_answer = response.choices[0].message.content
-        st.session_state.messages.append({"role": "assistant", "content": ai_answer})
-        
-        # BOMBENFESTES SPEICHERN IN SUPABASE
-        save_to_supabase({
-            "tasks": st.session_state.tasks, 
-            "messages": st.session_state.messages,
-            "subjects": st.session_state.subjects
-        })
-    except:
-        pass
-        
-    st.rerun()

@@ -8,9 +8,11 @@ from datetime import datetime
 # =========================================================================
 # SICHERHEITS-KONFIGURATION (Holt die Keys unsichtbar aus Streamlit Secrets)
 # =========================================================================
-OPENAI_API_KEY = st.secrets["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"]
-SUPABASE_URL = st.secrets["https://supabase.com/dashboard/project/ibatckroshtdwswmefgt/settings/api-keys/legacy"]
-SUPABASE_ANON_KEY = st.secrets["eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImliYXRja3Jvc2h0ZHdzd21lZmd0Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODA4NTMyNDEsImV4cCI6MjA5NjQyOTI0MX0.sRr1xCoDUkmmAaaHaPRVNc7hc7KXkmkHC1c6BIXedCo"]
+# WICHTIG: Hier im GitHub-Code darf KEIN echtes "sk-proj-..." stehen!
+# Die echten Keys tragen wir nachher NUR im Streamlit-Dashboard ein.
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
+SUPABASE_URL = st.secrets["SUPABASE_URL"]
+SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 
 USER_ID = "alex_soldat"
 
@@ -19,7 +21,7 @@ DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "P
 
 st.set_page_config(page_title="StudyTutor Croque 🐊", layout="wide")
 
-# CSS Styling für ein schönes Dark-Theme
+# CSS Styling für ein schönes Dark-Theme (wie ChatGPT)
 st.markdown("""
 <style>
     .stApp { background-color: #121214; color: #e1e1e6; }
@@ -165,7 +167,6 @@ with col_list:
                     base64_image = encode_image(uploaded_image)
                     client = openai.OpenAI(api_key=OPENAI_API_KEY)
                     
-                    # Wir schicken das Bild an OpenAI und fragen nach den Fächern
                     img_response = client.chat.completions.create(
                         model="gpt-4o-mini",
                         messages=[
@@ -183,13 +184,11 @@ with col_list:
                     )
                     
                     extracted_text = img_response.choices[0].message.content
-                    # Liste säubern und im Speicher sichern
                     new_subs = [s.strip() for s in extracted_text.split(",") if s.strip()]
                     if new_subs:
                         st.session_state.subjects = new_subs
                         st.success(f"Erkannte Fächer: {', '.join(new_subs)}")
                         
-                        # In Supabase sichern
                         current_state = {
                             "tasks": st.session_state.tasks, 
                             "messages": st.session_state.messages,

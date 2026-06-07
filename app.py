@@ -8,17 +8,15 @@ from datetime import datetime
 # =========================================================================
 # SICHERHEITS-KONFIGURATION (Holt die Keys unsichtbar aus Streamlit Secrets)
 # =========================================================================
-# Hier im GitHub-Code steht KEIN echter Schlüssel! Nur die sicheren Namen:
+# Passt jetzt exakt zu deinen Einträgen im Streamlit-Tresor!
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 
 USER_ID = "alex_soldat"
-
-# Standard-Fächer
 DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "Physik", "Chemie", "Geografie", "Informatik"]
 
-st.set_page_config(page_title="StudyTutor Croque 🐊", layout="wide")
+st.set_page_config(page_title="Lern-Bot 🐊", layout="wide")
 
 # CSS Styling für ein schönes Dark-Theme
 st.markdown("""
@@ -54,11 +52,9 @@ def save_to_supabase(state_data):
     except:
         pass
 
-# Bild in Base64 umwandeln
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode("utf-8")
 
-# Intelligentere Extraktion für Aufgaben direkt in Python
 def extract_task_from_text(text, subjects_list):
     clean_text = text.lower()
     if "athe" in clean_text and "mathe" not in clean_text:
@@ -89,7 +85,7 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hallo Alex! 🐊 Ich bin dein Lerncoach Croque. Du kannst mir jetzt links auch ein Foto deines Stundenplans hochladen!"}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hallo! 🐊 Ich bin dein Lerncoach. Du kannst mir jetzt links auch ein Foto deines Stundenplans hochladen!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
@@ -97,13 +93,13 @@ if "initialized" not in st.session_state:
 col_chat, col_list = st.columns([2, 1])
 
 with col_chat:
-    st.title("🐊 Croque GPT - Lerncoach")
+    st.title("🐊 Mein Lern-Bot")
     
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
             
-    if user_input := st.chat_input("Schreib Croque etwas..."):
+    if user_input := st.chat_input("Schreib mir etwas..."):
         st.session_state.messages.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
             st.write(user_input)
@@ -113,12 +109,11 @@ with col_chat:
             st.session_state.tasks.insert(0, new_task)
             
         with st.chat_message("assistant"):
-            with st.spinner("Croque überlegt... ✍️"):
+            with st.spinner("Ich überlege... ✍️"):
                 try:
-                    # HIER WIRD JETZT WIEDER OPENAI AUFGERUFEN:
                     client = openai.OpenAI(api_key=OPENAI_API_KEY)
                     
-                    sys_prompt = f"""Du bist Croque, der schlaue KI-Lerncoach für Alex. 
+                    sys_prompt = f"""Du bist ein schlauer KI-Lerncoach für Alex. 
                     STRENGE REGEL: Wenn der Nutzer nach Terminen, Aufgaben oder Tests fragt, lies dir das echte Aufgaben-Array unten genau durch.
                     Beziehe dich NUR auf diese Daten. Wenn die Liste leer ist, sag direkt, dass aktuell nichts eingetragen ist. Erfinde NIEMALS Aufgaben!
                     Antworte kurz (max. 3 Sätze), präzise und übersichtlich auf Deutsch mit passenden Emojis.
@@ -158,7 +153,7 @@ with col_list:
     
     if uploaded_image:
         if st.button("✨ Fächer aus Stundenplan auslesen"):
-            with st.spinner("Croque liest den Stundenplan... 👁️🐊"):
+            with st.spinner("Ich lese den Stundenplan... 👁️🐊"):
                 try:
                     base64_image = encode_image(uploaded_image)
                     client = openai.OpenAI(api_key=OPENAI_API_KEY)

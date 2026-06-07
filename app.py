@@ -6,26 +6,41 @@ import base64
 from datetime import datetime
 
 # =========================================================================
-# SICHERHEITS-KONFIGURATION (Holt die Keys unsichtbar aus Streamlit Secrets)
+# SICHERHEITS-KONFIGURATION
 # =========================================================================
-# WICHTIG: Hier im GitHub-Code darf KEIN echtes "sk-proj-..." stehen!
-# Streamlit holt sich die echten Schlüssel automatisch aus deinen Secrets.
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 
 USER_ID = "alex_soldat"
-
-# Standard-Fächer (falls kein Stundenplan hochgeladen wurde)
 DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "Physik", "Chemie", "Geografie", "Informatik"]
 
-st.set_page_config(page_title="StudyTutor 🐊", layout="wide")
+# Page Config für den cleanen Look
+st.set_page_config(page_title="StudyTutor 🐊", layout="wide", initial_sidebar_state="expanded")
 
-# CSS Styling für ein schönes Dark-Theme (Korrigierte Version für Python 3.14)
+# Minimalistisches, edles Dark-Theme im "Churchill"-Stil
 st.html("""
 <style>
-    .stApp { background-color: #121214; color: #e1e1e6; }
-    [data-testid="stSidebar"] { background-color: #1a1a1e; }
+    /* Hintergrund und Grundschrift */
+    .stApp { background-color: #1a1c1e; color: #e2e2e6; font-family: 'Inter', sans-serif; }
+    
+    /* Edle Sidebar */
+    [data-testid="stSidebar"] { background-color: #111315; border-right: 1px solid #2c3136; }
+    
+    /* Schickere Boxen für die Aufgaben links */
+    .dashboard-box {
+        background-color: #22262a;
+        border-radius: 8px;
+        padding: 12px;
+        margin-bottom: 10px;
+        border-left: 4px solid #4a90e2;
+    }
+    .test-box { border-left-color: #ff4d4d; }
+    .week-box { border-left-color: #ffb300; }
+    .plan-box { border-left-color: #2ed573; }
+    
+    /* Chat-Eingabe schöner platzieren */
+    div[data-testid="stChatInput"] { background-color: #22262a; border-radius: 20px; }
 </style>
 """)
 
@@ -55,11 +70,9 @@ def save_to_supabase(state_data):
     except:
         pass
 
-# Bild in Base64 umwandeln, damit OpenAI es lesen kann
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode("utf-8")
 
-# Intelligentere Extraktion für Aufgaben direkt in Python
 def extract_task_from_text(text, subjects_list):
     clean_text = text.lower()
     if "athe" in clean_text and "mathe" not in clean_text:
@@ -75,10 +88,12 @@ def extract_task_from_text(text, subjects_list):
         task_type = "Hausaufgabe"
         if any(w in clean_text for w in ["test", "prüfung", "pruefung", "schularbeit", "arbeit"]):
             task_type = "Test"
-        elif any(w in clean_text for w in ["ziel", "lernen", "üben", "ueben"]):
-            task_type = "Lernziel"
+        elif any(w in clean_text for w in ["ziel", "lernen", "üben", "ueben", "plan"]):
+            task_type = "Lernplan"
+        elif any(w in clean_text for w in ["nächste woche", "naechste woche", "woche"]):
+            task_type = "Nächste Woche"
             
-        return {"title": f"{found_subject} ({task_type})", "notes": text}
+        return {"title": found_subject, "type": task_type, "notes": text}
     return None
 
 # Session State initialisieren
@@ -90,129 +105,123 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hallo! 🐊 Ich bin dein Lerncoach. Du kannst mir jetzt links auch ein Foto deines Stundenplans hochladen!"}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hallo! 🐊 Dein neuer, cleaner Lerncoach ist startklar. Schreib mir einfach, was ansteht!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
-# UI Layout (Zwei Spalten)
-col_chat, col_list = st.columns([2, 1])
-
-with col_chat:
-    st.title("🐊 Mein Lern-Bot")
+# =========================================================================
+# SIDEBAR LINKS (Ausklappbares Dashboard)
+# =========================================================================
+with st.sidebar:
+    st.title("📋 Übersicht")
+    st.write("---")
     
-    # Chat-Verlauf anzeigen
-    for msg in st.session_state.messages:
-        with st.chat_message(msg["role"]):
-            st.write(msg["content"])
+    # 1. TESTS & PRÜFUNGEN
+    st.subheader("🔴 Anstehende Tests")
+    tests = [t for t in st.session_state.tasks if t.get("type") == "Test"]
+    if not tests:
+        st.caption("Keine Tests eingetragen. 🙌")
+    else:
+        for t in tests:
+            st.html(f"<div class='dashboard-box test-box'><strong>{t['title']}</strong><br><small>{t['notes']}</small></div>")
             
-    # Chat-Eingabe
-    if user_input := st.chat_input("Schreib mir etwas..."):
-        st.session_state.messages.append({"role": "user", "content": user_input})
-        with st.chat_message("user"):
-            st.write(user_input)
-            
-        new_task = extract_task_from_text(user_input, st.session_state.subjects)
-        if new_task:
-            st.session_state.tasks.insert(0, new_task)
-            
-        with st.chat_message("assistant"):
-            with st.spinner("Ich überlege... ✍️"):
-                try:
-                    client = openai.OpenAI(api_key=OPENAI_API_KEY)
-                    
-                    sys_prompt = f"""Du bist ein schlauer KI-Lerncoach für Alex. 
-                    STRENGE REGEL: Wenn der Nutzer nach Terminen, Aufgaben oder Tests fragt, lies dir das echte Aufgaben-Array unten genau durch.
-                    Beziehe dich NUR auf diese Daten. Wenn die Liste leer ist, sag direkt, dass aktuell nichts eingetragen ist. Erfinde NIEMALS Aufgaben!
-                    Antworte kurz (max. 3 Sätze), präzise und übersichtlich auf Deutsch mit passenden Emojis.
-
-                    Echte Daten aus der Datenbank:
-                    {json.dumps(st.session_state.tasks) if st.session_state.tasks else "LISTE IST LEER"}
-                    
-                    Alex hat folgende Schulfächer: {', '.join(st.session_state.subjects)}"""
-                    
-                    response = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[
-                            {"role": "system", "content": sys_prompt},
-                            {"role": "user", "content": user_input}
-                        ],
-                        temperature=0.1
-                    )
-                    ai_answer = response.choices[0].message.content
-                    st.write(ai_answer)
-                    st.session_state.messages.append({"role": "assistant", "content": ai_answer})
-                    
-                    # In Supabase sichern
-                    current_state = {
-                        "tasks": st.session_state.tasks, 
-                        "messages": st.session_state.messages,
-                        "subjects": st.session_state.subjects
-                    }
-                    save_to_supabase(current_state)
-                except Exception as e:
-                    st.error(f"Fehler: Verbindung fehlgeschlagen. ({str(e)})")
-        st.rerun()
-
-with col_list:
-    st.header("📋 Stundenplan & Aufgaben")
+    st.write("---")
     
-    # STUNDENPLAN FOTO UPLOAD HIER:
-    st.subheader("📅 Stundenplan hochladen")
-    uploaded_image = st.file_uploader("Foto vom Stundenplan auswählen", type=["jpg", "jpeg", "png"])
+    # 2. NÄCHSTE WOCHE
+    st.subheader("🟡 Nächste Woche")
+    next_week = [t for t in st.session_state.tasks if t.get("type") == "Nächste Woche" or t.get("type") == "Hausaufgabe"]
+    if not next_week:
+        st.caption("Alles ruhig nächste Woche. 😎")
+    else:
+        for w in next_week:
+            st.html(f"<div class='dashboard-box week-box'><strong>{w['title']}</strong><br><small>{w['notes']}</small></div>")
+            
+    st.write("---")
     
-    if uploaded_image:
-        if st.button("✨ Fächer aus Stundenplan auslesen"):
-            with st.spinner("Ich lese den Stundenplan... 👁️🐊"):
+    # 3. LERNPLAN
+    st.subheader("🟢 Mein Lernplan")
+    plan = [t for t in st.session_state.tasks if t.get("type") == "Lernplan"]
+    if not plan:
+        st.caption("Noch kein aktiver Lernplan.")
+    else:
+        for p in plan:
+            st.html(f"<div class='dashboard-box plan-box'><strong>{p['title']}</strong><br><small>{p['notes']}</small></div>")
+
+    st.write("---")
+    
+    # Stundenplan Upload dezent am Ende der Sidebar platziert
+    with st.expander("⚙️ Tools & Stundenplan"):
+        uploaded_image = st.file_uploader("Stundenplan Foto", type=["jpg", "jpeg", "png"])
+        if uploaded_image and st.button("✨ Fächer einlesen"):
+            with st.spinner("Lese Stundenplan..."):
                 try:
                     base64_image = encode_image(uploaded_image)
                     client = openai.OpenAI(api_key=OPENAI_API_KEY)
-                    
                     img_response = client.chat.completions.create(
                         model="gpt-4o-mini",
-                        messages=[
-                            {
-                                "role": "user",
-                                "content": [
-                                    {"type": "text", "text": "Lies dieses Bild eines Stundenplans. Extrahiere alle eindeutigen Schulfächer (z.B. Mathe, Deutsch, Biologie...) als reine, kommagetrennte Liste. Antworte NUR mit den Fächern, getrennt durch ein Komma, kein anderer Text!"},
-                                    {
-                                        "type": "image_url",
-                                        "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
-                                    }
-                                ]
-                            }
-                        ]
+                        messages=[{"role": "user", "content": [{"type": "text", "text": "Extrahiere Schulfächer als kommagetrennte Liste."}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}]}]
                     )
-                    
-                    extracted_text = img_response.choices[0].message.content
-                    new_subs = [s.strip() for s in extracted_text.split(",") if s.strip()]
+                    new_subs = [s.strip() for s in img_response.choices[0].message.content.split(",") if s.strip()]
                     if new_subs:
                         st.session_state.subjects = new_subs
-                        st.success(f"Erkannte Fächer: {', '.join(new_subs)}")
-                        
-                        current_state = {
-                            "tasks": st.session_state.tasks, 
-                            "messages": st.session_state.messages,
-                            "subjects": st.session_state.subjects
-                        }
-                        save_to_supabase(current_state)
+                        st.rerun()
                 except Exception as e:
-                    st.error(f"Fehler beim Lesen des Bildes: {str(e)}")
+                    st.error(str(e))
                     
-    st.write(f"**Deine aktuellen Fächer:** {', '.join(st.session_state.subjects)}")
-    st.write("---")
-    
-    if st.button("🗑️ Alle Aufgaben löschen"):
-        st.session_state.tasks = []
-        save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects})
-        st.rerun()
+        if st.button("🗑️ Alle Daten löschen"):
+            st.session_state.tasks = []
+            save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects})
+            st.rerun()
+
+# =========================================================================
+# RECHTER HAUPTBEREICH (Der elegante Chat)
+# =========================================================================
+st.title("🐊 StudyTutor")
+st.caption("Ein aufgeräumter Workspace für deinen Lernerfolg.")
+
+# Container für den Chat-Verlauf (damit es clean aussieht)
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.write(msg["content"])
+
+# Chat-Eingabe
+if user_input := st.chat_input("Schreib eine neue Aufgabe oder chatte..."):
+    st.session_state.messages.append({"role": "user", "content": user_input})
+    with st.chat_message("user"):
+        st.write(user_input)
         
-    st.write("---")
-    
-    if not st.session_state.tasks:
-        st.write("Alles erledigt! 🙌")
-    else:
-        for task in st.session_state.tasks:
-            with st.container():
-                st.markdown(f"### 📝 {task.get('title')}")
-                st.caption(f"Details: {task.get('notes')}")
-                st.write("---")
+    # Automatisch filtern, in welche Kategorie links es gehört
+    new_task = extract_task_from_text(user_input, st.session_state.subjects)
+    if new_task:
+        st.session_state.tasks.insert(0, new_task)
+        
+    with st.chat_message("assistant"):
+        with st.spinner("..."):
+            try:
+                client = openai.OpenAI(api_key=OPENAI_API_KEY)
+                
+                sys_prompt = f"""Du bist ein minimalistischer, extrem präziser KI-Lerncoach. 
+                Gib strukturierte, kurze Antworten (max. 3 Sätze). Nutze Emojis dezent.
+                Beziehe dich immer auf die aktuelle Liste: {json.dumps(st.session_state.tasks)}"""
+                
+                response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": sys_prompt},
+                        {"role": "user", "content": user_input}
+                    ],
+                    temperature=0.2
+                )
+                ai_answer = response.choices[0].message.content
+                st.write(ai_answer)
+                st.session_state.messages.append({"role": "assistant", "content": ai_answer})
+                
+                # In Datenbank sichern
+                save_to_supabase({
+                    "tasks": st.session_state.tasks, 
+                    "messages": st.session_state.messages,
+                    "subjects": st.session_state.subjects
+                })
+            except Exception as e:
+                st.error(f"Fehler: {str(e)}")
+    st.rerun()

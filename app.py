@@ -120,6 +120,7 @@ if "initialized" not in st.session_state:
         st.session_state.tasks = []
         st.session_state.messages = [{"role": "assistant", "content": "Hallo! 🐊 Dein fehlerfreier Workspace ist bereit."}]
         st.session_state.subjects = DEFAULT_SUBJECTS
+    st.session_state.last_audio_name = None  # Merkt sich das letzte verarbeitete Audio
     st.session_state.initialized = True
 
 user_input = None
@@ -196,17 +197,19 @@ for msg in st.session_state.messages:
 
 st.write("---")
 
-# Audio-Eingabe
-audio_file = st.audio_input("Sprachbefehl aufnehmen")
+# Audio-Eingabe (Bekommt einen eindeutigen Key)
+audio_file = st.audio_input("Sprachbefehl aufnehmen", key="audio_recorder_widget")
 
-if audio_file:
+# Verhindert die Endlosschleife: Nur verarbeiten, wenn es eine NEUE Datei ist
+if audio_file and audio_file.name != st.session_state.get("last_audio_name"):
     with st.spinner("Wandle Sprache in Text um... 🎙️"):
         text_from_speech = transcribe_audio(audio_file)
         if text_from_speech:
-            # FILTER: Ignoriert Geister-Eingaben wie "you" oder leeren Text
             clean_check = text_from_speech.strip().strip('.').strip().lower()
             if clean_check not in ["you", "you.", ""]:
                 user_input = text_from_speech
+                # Speicher aktualisieren, damit diese Datei nicht noch mal triggert
+                st.session_state.last_audio_name = audio_file.name
 
 # Normale Chat-Eingabe
 if text_input := st.chat_input("Schreib eine neue Aufgabe oder chatte..."):

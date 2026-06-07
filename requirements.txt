@@ -1,4 +1,4 @@
 streamlit
 openai
 requests
-streamlit-mic-recorder
+audio-recorder-streamlit

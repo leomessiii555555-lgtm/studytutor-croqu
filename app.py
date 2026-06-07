@@ -4,8 +4,8 @@ import requests
 import json
 import base64
 from datetime import datetime
-# HIER IST DAS NEUE MIKROFON-PAKET:
-from streamlit_mic_recorder import mic_recorder
+# DAS NEUE STABILE MIKROFON-PAKET:
+from audio_recorder_streamlit import audio_recorder
 
 # =========================================================================
 # SICHERHEITS-KONFIGURATION
@@ -43,9 +43,6 @@ st.html("""
     
     div[data-testid="stChatInput"] { background-color: #ffffff; border: 1px solid #ced4da; border-radius: 20px; }
     div[data-testid="stChatInput"] textarea { color: #111111 !important; }
-    
-    /* Styling für den Mikrofon-Bereich */
-    .mic-container { background-color: #ffffff; padding: 10px; border-radius: 10px; border: 1px solid #ced4da; margin-top: 10px; }
 </style>
 """)
 
@@ -82,11 +79,10 @@ def encode_image(uploaded_file):
 def transcribe_audio(audio_bytes):
     try:
         client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        # Temporäre Datei für das Audio erstellen
-        with open("temp_audio.wav", "wb") as f:
+        with open("temp_audio.mp3", "wb") as f:
             f.write(audio_bytes)
         
-        with open("temp_audio.wav", "rb") as audio_file:
+        with open("temp_audio.mp3", "rb") as audio_file:
             transcript = client.audio.transcriptions.create(
                 model="whisper-1", 
                 file=audio_file
@@ -128,11 +124,10 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hallo! 🐊 Dein Lerncoach ist bereit. Du kannst jetzt tippen oder das Mikrofon benutzen!"}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hallo! 🐊 Dein Lerncoach ist bereit. Klicke auf das Mikrofon unten, um zu sprechen!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
-# Verarbeite Eingaben (Egal ob Text oder Sprache)
 user_input = None
 
 # =========================================================================
@@ -196,40 +191,34 @@ with st.sidebar:
             st.rerun()
 
 # =========================================================================
-# RECHTER HAUPTBEREICH (Chat & Mikrofon)
+# RECHTER HAUPTBEREICH (Chat & Neues Mikrofon)
 # =========================================================================
 st.title("🐊 StudyTutor")
-st.caption("Dein Workspace mit Tastatur- und Spracheingabe.")
 
 # Chat-Verlauf anzeigen
 for msg in st.session_state.messages:
     with st.chat_message(msg["role"]):
         st.write(msg["content"])
 
-# MIKROFON UPGRADE HIER:
 st.write("---")
-col_mic_info, col_mic_button = st.columns([3, 1])
-with col_mic_info:
-    st.caption("🎤 Klicke auf 'Start recording', sprich deine Aufgabe und klicke auf 'Stop'.")
-with col_mic_button:
-    # Das echte Mikrofon-Widget
-    audio_record = mic_recorder(start_prompt="🎤 Start", stop_prompt="🛑 Stop", key="mic")
 
-if audio_record:
+# DAS NEUE MIKROFON-WIDGET (Kompakt platziert)
+audio_bytes = audio_recorder(text="Klicke zum Aufnehmen: ", recording_color="#e74c3c", neutral_color="#95a5a6")
+
+if audio_bytes:
     with st.spinner("Wandle Sprache in Text um... 🎙️"):
-        text_from_speech = transcribe_audio(audio_record['bytes'])
+        text_from_speech = transcribe_audio(audio_bytes)
         if text_from_speech:
             user_input = text_from_speech
 
-# Normale Chat-Eingabe (falls man tippen will)
+# Normale Chat-Eingabe
 if text_input := st.chat_input("Schreib eine neue Aufgabe oder chatte..."):
     user_input = text_input
 
-# Wenn eine Eingabe da ist (entweder durch Tippen ODER Sprechen), verarbeiten:
+# Verarbeitung
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
     
-    # Automatisch filtern
     new_task = extract_task_from_text(user_input, st.session_state.subjects)
     if new_task:
         st.session_state.tasks.insert(0, new_task)
@@ -254,7 +243,6 @@ if user_input:
                 ai_answer = response.choices[0].message.content
                 st.session_state.messages.append({"role": "assistant", "content": ai_answer})
                 
-                # In Datenbank sichern
                 save_to_supabase({
                     "tasks": st.session_state.tasks, 
                     "messages": st.session_state.messages,

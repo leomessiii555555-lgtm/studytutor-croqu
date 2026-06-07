@@ -8,23 +8,26 @@ from datetime import datetime
 # =========================================================================
 # SICHERHEITS-KONFIGURATION (Holt die Keys unsichtbar aus Streamlit Secrets)
 # =========================================================================
-# Passt jetzt exakt zu deinen Einträgen im Streamlit-Tresor!
+# WICHTIG: Hier im GitHub-Code darf KEIN echtes "sk-proj-..." stehen!
+# Streamlit holt sich die echten Schlüssel automatisch aus deinen Secrets.
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 
 USER_ID = "alex_soldat"
+
+# Standard-Fächer (falls kein Stundenplan hochgeladen wurde)
 DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "Physik", "Chemie", "Geografie", "Informatik"]
 
-st.set_page_config(page_title="Lern-Bot 🐊", layout="wide")
+st.set_page_config(page_title="StudyTutor 🐊", layout="wide")
 
-# CSS Styling für ein schönes Dark-Theme
-st.markdown("""
+# CSS Styling für ein schönes Dark-Theme (Korrigierte Version für Python 3.14)
+st.html("""
 <style>
     .stApp { background-color: #121214; color: #e1e1e6; }
     [data-testid="stSidebar"] { background-color: #1a1a1e; }
 </style>
-""", unsafe_allowed_html=True)
+""")
 
 # Hilfsfunktionen für Supabase
 def load_from_supabase():
@@ -52,9 +55,11 @@ def save_to_supabase(state_data):
     except:
         pass
 
+# Bild in Base64 umwandeln, damit OpenAI es lesen kann
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode("utf-8")
 
+# Intelligentere Extraktion für Aufgaben direkt in Python
 def extract_task_from_text(text, subjects_list):
     clean_text = text.lower()
     if "athe" in clean_text and "mathe" not in clean_text:
@@ -89,16 +94,18 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
-# UI Layout
+# UI Layout (Zwei Spalten)
 col_chat, col_list = st.columns([2, 1])
 
 with col_chat:
     st.title("🐊 Mein Lern-Bot")
     
+    # Chat-Verlauf anzeigen
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
             
+    # Chat-Eingabe
     if user_input := st.chat_input("Schreib mir etwas..."):
         st.session_state.messages.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
@@ -135,6 +142,7 @@ with col_chat:
                     st.write(ai_answer)
                     st.session_state.messages.append({"role": "assistant", "content": ai_answer})
                     
+                    # In Supabase sichern
                     current_state = {
                         "tasks": st.session_state.tasks, 
                         "messages": st.session_state.messages,
@@ -148,6 +156,7 @@ with col_chat:
 with col_list:
     st.header("📋 Stundenplan & Aufgaben")
     
+    # STUNDENPLAN FOTO UPLOAD HIER:
     st.subheader("📅 Stundenplan hochladen")
     uploaded_image = st.file_uploader("Foto vom Stundenplan auswählen", type=["jpg", "jpeg", "png"])
     

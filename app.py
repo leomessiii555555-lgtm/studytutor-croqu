@@ -26,18 +26,13 @@ st.html("""
     [data-testid="stSidebar"] h1, [data-testid="stSidebar"] h2, [data-testid="stSidebar"] h3, [data-testid="stSidebar"] p, [data-testid="stSidebar"] span {
         color: #111111 !important;
     }
-    .dashboard-box {
-        background-color: #f1f3f5;
-        color: #111111;
-        border-radius: 8px;
-        padding: 12px;
-        margin-bottom: 10px;
-        border-left: 5px solid #0056b3;
-        box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    
+    /* Styling für die echten, sauberen Tabs/Expander links */
+    .stDetails {
+        border-radius: 8px !important;
+        margin-bottom: 8px !important;
+        box-shadow: 0 1px 3px rgba(0,0,0,0.05) !important;
     }
-    .test-box { border-left-color: #dc3545; background-color: #fff5f5; }
-    .week-box { border-left-color: #ffc107; background-color: #fffbeb; }
-    .plan-box { border-left-color: #28a745; background-color: #f4fbf7; }
     
     div[data-testid="stChatInput"] { background-color: #ffffff; border: 1px solid #ced4da; border-radius: 20px; }
     div[data-testid="stChatInput"] textarea { color: #111111 !important; }
@@ -86,28 +81,33 @@ def transcribe_audio(audio_file):
         st.error(f"Fehler bei der Spracherkennung: {str(e)}")
         return None
 
-def extract_task_from_text(text, subjects_list):
-    clean_text = text.lower()
-    if "athe" in clean_text and "mathe" not in clean_text:
-        clean_text = clean_text.replace("athe", "mathe")
-    
-    found_subject = None
-    for sub in subjects_list:
-        if sub.lower() in clean_text:
-            found_subject = sub
-            break
-            
-    if found_subject:
-        task_type = "Hausaufgabe"
-        if any(w in clean_text for w in ["test", "prüfung", "pruefung", "schularbeit", "arbeit"]):
-            task_type = "Test"
-        elif any(w in clean_text for w in ["ziel", "lernen", "üben", "ueben", "plan"]):
-            task_type = "Lernplan"
-        elif any(w in clean_text for w in ["nächste woche", "naechste woche", "woche"]):
-            task_type = "Nächste Woche"
-            
-        return {"title": found_subject, "type": task_type, "notes": text}
-    return None
+# KI-gestützte Extraktion für saubere Titel links
+def extract_task_with_ai(text, subjects_list):
+    try:
+        client = openai.OpenAI(api_key=OPENAI_API_KEY)
+        prompt = f"""Analysiere folgenden Text und finde heraus, ob es ein Test, Lernplan oder eine Hausaufgabe/nächste Woche ist.
+        Ordne es einem dieser Fächer zu: {', '.join(subjects_list)}. (Beachte Abkürzungen: 'geo' ist Geografie, 'mathe' ist Mathe).
+        
+        Antworte NUR mit einem gültigen JSON-Objekt im folgenden Format, ohne Codeblocks oder extra Text:
+        {{"title": "Name des Fachs", "type": "Test" oder "Nächste Woche" oder "Lernplan", "summary": "Kurze, knackige Zusammenfassung der Aufgabe (max 5 Wörter)"}}
+        
+        Text: "{text}" """
+        
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.1
+        )
+        data = json.loads(response.choices[0].message.content.strip())
+        return {
+            "title": data.get("title", "Allgemein"),
+            "type": data.get("type", "Nächste Woche"),
+            "summary": data.get("summary", "Neue Aufgabe"),
+            "notes": text
+        }
+    except:
+        # Fallback falls KI-Analyse fehlschlägt
+        return {"title": "Aufgabe", "type": "Nächste Woche", "summary": "Bitte prüfen", "notes": text}
 
 # Session State initialisieren
 if "initialized" not in st.session_state:
@@ -120,45 +120,51 @@ if "initialized" not in st.session_state:
         st.session_state.tasks = []
         st.session_state.messages = [{"role": "assistant", "content": "Hallo! 🐊 Dein fehlerfreier Workspace ist bereit."}]
         st.session_state.subjects = DEFAULT_SUBJECTS
-    st.session_state.last_audio_name = None  # Merkt sich das letzte verarbeitete Audio
     st.session_state.initialized = True
 
 user_input = None
 
 # =========================================================================
-# SIDEBAR LINKS (Dashboard)
+# SIDEBAR LINKS (Dashboard mit echten Tabs / Aufklappbaren Unterpunkten)
 # =========================================================================
 with st.sidebar:
     st.title("📋 Übersicht")
     st.write("---")
     
-    st.subheader("🔴 Anstehende Tests")
-    tests = [t for t in st.session_state.tasks if t.get("type") == "Test"]
-    if not tests:
-        st.caption("Keine Tests eingetragen. 🙌")
-    else:
-        for t in tests:
-            st.html(f"<div class='dashboard-box test-box'><strong>{t['title']}</strong><br>{t['notes']}</div>")
+    # 1. TAB: TESTS & PRÜFUNGEN
+    with st.expander("🔴 Anstehende Tests", expanded=True):
+        tests = [t for t in st.session_state.tasks if t.get("type") == "Test"]
+        if not tests:
+            st.caption("Keine Tests eingetragen. 🙌")
+        else:
+            for t in tests:
+                # Zeigt links NUR die saubere Zusammenfassung, Details klappen auf!
+                with st.popover(f"📝 {t['title']}: {t['summary']}", use_container_width=True):
+                    st.write(f"**Ganzes Protokoll:** {t['notes']}")
             
     st.write("---")
     
-    st.subheader("🟡 Nächste Woche")
-    next_week = [t for t in st.session_state.tasks if t.get("type") == "Nächste Woche" or t.get("type") == "Hausaufgabe"]
-    if not next_week:
-        st.caption("Alles ruhig nächste Woche. 😎")
-    else:
-        for w in next_week:
-            st.html(f"<div class='dashboard-box week-box'><strong>{w['title']}</strong><br>{w['notes']}</div>")
+    # 2. TAB: NÄCHSTE WOCHE
+    with st.expander("🟡 Nächste Woche", expanded=True):
+        next_week = [t for t in st.session_state.tasks if t.get("type") == "Nächste Woche" or t.get("type") == "Hausaufgabe"]
+        if not next_week:
+            st.caption("Alles ruhig nächste Woche. 😎")
+        else:
+            for w in next_week:
+                with st.popover(f"⏳ {w['title']}: {w['summary']}", use_container_width=True):
+                    st.write(f"**Ganzes Protokoll:** {w['notes']}")
             
     st.write("---")
     
-    st.subheader("🟢 Mein Lernplan")
-    plan = [t for t in st.session_state.tasks if t.get("type") == "Lernplan"]
-    if not plan:
-        st.caption("Noch kein aktiver Lernplan.")
-    else:
-        for p in plan:
-            st.html(f"<div class='dashboard-box plan-box'><strong>{p['title']}</strong><br>{p['notes']}</div>")
+    # 3. TAB: LERNPLAN
+    with st.expander("🟢 Mein Lernplan", expanded=True):
+        plan = [t for t in st.session_state.tasks if t.get("type") == "Lernplan"]
+        if not plan:
+            st.caption("Noch kein aktiver Lernplan.")
+        else:
+            for p in plan:
+                with st.popover(f"📅 {p['title']}: {p['summary']}", use_container_width=True):
+                    st.write(f"**Ganzes Protokoll:** {p['notes']}")
 
     st.write("---")
     
@@ -197,19 +203,17 @@ for msg in st.session_state.messages:
 
 st.write("---")
 
-# Audio-Eingabe (Bekommt einen eindeutigen Key)
-audio_file = st.audio_input("Sprachbefehl aufnehmen", key="audio_recorder_widget")
+# Audio-Eingabe (Wir nutzen dynamische Keys basierend auf der Anzahl der Nachrichten, um den Cache-Fehler zu killen!)
+audio_key = f"audio_input_{len(st.session_state.messages)}"
+audio_file = st.audio_input("Sprachbefehl aufnehmen", key=audio_key)
 
-# Verhindert die Endlosschleife: Nur verarbeiten, wenn es eine NEUE Datei ist
-if audio_file and audio_file.name != st.session_state.get("last_audio_name"):
+if audio_file:
     with st.spinner("Wandle Sprache in Text um... 🎙️"):
         text_from_speech = transcribe_audio(audio_file)
         if text_from_speech:
             clean_check = text_from_speech.strip().strip('.').strip().lower()
             if clean_check not in ["you", "you.", ""]:
                 user_input = text_from_speech
-                # Speicher aktualisieren, damit diese Datei nicht noch mal triggert
-                st.session_state.last_audio_name = audio_file.name
 
 # Normale Chat-Eingabe
 if text_input := st.chat_input("Schreib eine neue Aufgabe oder chatte..."):
@@ -219,9 +223,11 @@ if text_input := st.chat_input("Schreib eine neue Aufgabe oder chatte..."):
 if user_input:
     st.session_state.messages.append({"role": "user", "content": user_input})
     
-    new_task = extract_task_from_text(user_input, st.session_state.subjects)
-    if new_task:
-        st.session_state.tasks.insert(0, new_task)
+    # Intelligente KI-Extraktion für den Titel links nutzen!
+    with st.spinner("Sortiere Aufgabe ein..."):
+        new_task = extract_task_with_ai(user_input, st.session_state.subjects)
+        if new_task:
+            st.session_state.tasks.insert(0, new_task)
         
     with st.chat_message("assistant"):
         with st.spinner("..."):

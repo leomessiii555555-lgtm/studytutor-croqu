@@ -8,20 +8,19 @@ from datetime import datetime
 # =========================================================================
 # SICHERHEITS-KONFIGURATION (Holt die Keys unsichtbar aus Streamlit Secrets)
 # =========================================================================
-# WICHTIG: Hier im GitHub-Code darf KEIN echtes "sk-proj-..." stehen!
-# Die echten Keys tragen wir nachher NUR im Streamlit-Dashboard ein.
+# Hier im GitHub-Code steht KEIN echter Schlüssel! Nur die sicheren Namen:
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 
 USER_ID = "alex_soldat"
 
-# Standard-Fächer (falls kein Stundenplan hochgeladen wurde)
+# Standard-Fächer
 DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "Physik", "Chemie", "Geografie", "Informatik"]
 
 st.set_page_config(page_title="StudyTutor Croque 🐊", layout="wide")
 
-# CSS Styling für ein schönes Dark-Theme (wie ChatGPT)
+# CSS Styling für ein schönes Dark-Theme
 st.markdown("""
 <style>
     .stApp { background-color: #121214; color: #e1e1e6; }
@@ -55,7 +54,7 @@ def save_to_supabase(state_data):
     except:
         pass
 
-# Bild in Base64 umwandeln, damit OpenAI es lesen kann
+# Bild in Base64 umwandeln
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode("utf-8")
 
@@ -94,18 +93,16 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
-# UI Layout (Zwei Spalten)
+# UI Layout
 col_chat, col_list = st.columns([2, 1])
 
 with col_chat:
     st.title("🐊 Croque GPT - Lerncoach")
     
-    # Chat-Verlauf anzeigen
     for msg in st.session_state.messages:
         with st.chat_message(msg["role"]):
             st.write(msg["content"])
             
-    # Chat-Eingabe
     if user_input := st.chat_input("Schreib Croque etwas..."):
         st.session_state.messages.append({"role": "user", "content": user_input})
         with st.chat_message("user"):
@@ -118,6 +115,7 @@ with col_chat:
         with st.chat_message("assistant"):
             with st.spinner("Croque überlegt... ✍️"):
                 try:
+                    # HIER WIRD JETZT WIEDER OPENAI AUFGERUFEN:
                     client = openai.OpenAI(api_key=OPENAI_API_KEY)
                     
                     sys_prompt = f"""Du bist Croque, der schlaue KI-Lerncoach für Alex. 
@@ -142,7 +140,6 @@ with col_chat:
                     st.write(ai_answer)
                     st.session_state.messages.append({"role": "assistant", "content": ai_answer})
                     
-                    # In Supabase sichern
                     current_state = {
                         "tasks": st.session_state.tasks, 
                         "messages": st.session_state.messages,
@@ -156,7 +153,6 @@ with col_chat:
 with col_list:
     st.header("📋 Stundenplan & Aufgaben")
     
-    # STUNDENPLAN FOTO UPLOAD HIER:
     st.subheader("📅 Stundenplan hochladen")
     uploaded_image = st.file_uploader("Foto vom Stundenplan auswählen", type=["jpg", "jpeg", "png"])
     

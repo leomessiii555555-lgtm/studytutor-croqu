@@ -248,7 +248,7 @@ def save_all_to_db():
     })
 
 # =========================================================================
-# CORE KI ENGINE MIT SCHRIFTPROFIL
+# CORE KI ENGINE (STRIKTE RECHNERISCHE DATUM- & LÖSCH-LOGIK)
 # =========================================================================
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
@@ -263,12 +263,16 @@ def process_user_input(input_text, uploaded_image=None):
             handwriting_context = f"\nINFO ZUR HANDSCHRIFT DES SCHÜLERS: Beachte beim Auslesen und Entziffern von Bildern das gelernte Schriftprofil des Schülers: {st.session_state.handwriting_analysis}"
 
         prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
-        HEUTE IST: {heute_wochentag}, der {now_str}.{handwriting_context}
+        HEUTE IST MATHEMATISCHER STARTPUNKT: {heute_wochentag}, der {now_str}.{handwriting_context}
         
-        STRIKTE MATHEMATISCHE DATUMS-BERECHNUNG:
-        Wenn der User relative Zeitangaben macht, berechne das exakte Datum ausgehend von heute ({now_str}):
-        - "diesen Freitag" = Freitag derselben Woche.
-        - "nächsten Freitag" / "nächste Woche Freitag" = Freitag der NÄCHSTEN Kalenderwoche.
+        STRIKTE REGEL FÜR DATUMS-BERECHNUNGEN:
+        Berechne relative Zeitangaben EXAKT ausgehend von heute ({now_str}):
+        - "Diesen Freitag" = Der Freitag in der aktuellen Woche.
+        - "Nächsten Freitag" oder "Nächste Woche Freitag" = Der Freitag der NÄCHSTEN Kalenderwoche (Heute + Tage bis Freitag + 7 Tage).
+        Gib das Datum IMMER im Format DD.MM.YYYY aus! Keine Ausnahmen!
+
+        LÖSCH-BEFEHLE STRICTLY BEFOLGEN:
+        Wenn der User sagt, er möchte eine Aufgabe, einen Test oder eine Hausaufgabe löschen oder entfernen, musst du die passende ID der Aufgabe aus der Liste unten heraussuchen und sie in das Array 'tasks_to_delete' schreiben!
 
         Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
         Aktuelle Aufgaben auf dem Board: {json.dumps(st.session_state.tasks, ensure_ascii=False)}
@@ -281,7 +285,7 @@ def process_user_input(input_text, uploaded_image=None):
           "tasks_to_add": [
             {{ "title": "Fachname", "type": "Test" oder "Hausaufgabe", "summary": "Thema", "prioritaet": "🚨 Hoch" oder "🟡 Mittel", "termin": "DD.MM.YYYY" }}
           ],
-          "tasks_to_delete": [],
+          "tasks_to_delete": ["id_der_aufgabe_1", "id_der_aufgabe_2"],
           "grade_to_add": null,
           "flashcards_to_add": []
         }}"""
@@ -296,12 +300,18 @@ def process_user_input(input_text, uploaded_image=None):
             response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": content_payload}], response_format={"type": "json_object"}, temperature=0.1)
             result = json.loads(response.choices[0].message.content.strip())
             
+            # 1. AUFGABEN HINZUFÜGEN
             if result.get("tasks_to_add"):
                 for i, t in enumerate(result["tasks_to_add"]):
                     st.session_state.tasks.insert(0, {
                         "title": t.get("title"), "type": t.get("type", "Hausaufgabe"), "summary": t.get("summary"), "prioritaet": t.get("prioritaet", "🟡 Mittel"),
                         "termin": t.get("termin"), "id": f"ai_{datetime.utcnow().timestamp()}_{i}"
                     })
+            
+            # 2. FIX: AUFGABEN TATSÄCHLICH AUS DEM STATE LÖSCHEN
+            if result.get("tasks_to_delete"):
+                delete_ids = result["tasks_to_delete"]
+                st.session_state.tasks = [task for task in st.session_state.tasks if task.get("id") not in delete_ids]
                     
             st.session_state.messages.append({"role": "user", "content": input_text if input_text else "📸 [Bild hochgeladen]"})
             st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Erledigt! 🐊")})
@@ -472,7 +482,7 @@ if st.session_state.app_mode == "Dashboard":
                 st.session_state.xp += 10; save_all_to_db(); st.rerun()
 
 # =========================================================================
-# MODUS 2: KARTEIKARTEN-TRAINER (ABGESICHERT GEGEN UNVOLLSTÄNDIGES JSON)
+# MODUS 2: KARTEIKARTEN-TRAINER
 # =========================================================================
 elif st.session_state.app_mode == "Karteikarten":
     st.title("🃏 Intelligenter Karteikarten-Trainer")
@@ -527,7 +537,6 @@ elif st.session_state.app_mode == "Karteikarten":
                 
                 if final_topic:
                     with st.spinner("Kroko designt deine Premium-Karten... 🐊"):
-                        # ERHÖHTE STRIKTNESS IM PROMPT GEGEN ABBRÜCHE
                         ki_prompt = f"""Erstelle exakt {ki_count} Karteikarten für das Schulfach '{ki_sub}' zum Thema '{final_topic}'.
                         Schwierigkeit: {ki_diff}.
                         WICHTIG: Jede Karte MUSS zwingend eine 'question' UND eine passende, ausführliche 'answer' besitzen! Verlasse niemals das JSON-Format.
@@ -550,7 +559,6 @@ elif st.session_state.app_mode == "Karteikarten":
                                 q_text = c.get("question", "").strip()
                                 a_text = c.get("answer", "").strip()
                                 
-                                # SICHERHEITS-FILTER: Keine unvollständigen Karten speichern
                                 if q_text and a_text:
                                     st.session_state.flashcards.append({
                                         "subject": c.get("subject", ki_sub), 
@@ -591,7 +599,7 @@ elif st.session_state.app_mode == "Karteikarten":
                     save_all_to_db(); st.success("Karte hinzugefügt!"); st.rerun()
 
 # =========================================================================
-# MODUS 3: NOTENSPIEGEL (ÖSTERREICHISCHE GEWICHTUNG)
+# MODUS 3: NOTENSPIEGEL
 # =========================================================================
 elif st.session_state.app_mode == "Notenspiegel":
     st.title("📝 Dein persönlicher Notenspiegel (Österreichische Gewichtung)")
@@ -615,7 +623,7 @@ elif st.session_state.app_mode == "Notenspiegel":
             save_all_to_db(); st.success("Eingetragen!"); st.rerun()
 
     if st.session_state.grades:
-        st.write("### 📈 Deine Fachübersichten & präzise Schnitte")
+        st.write("### 📈 Deine Fachübersichten & präzise Schninned")
         for s in st.session_state.subjects:
             sub_grades = [g for g in st.session_state.grades if g["subject"] == s]
             if sub_grades:
@@ -664,7 +672,7 @@ elif st.session_state.app_mode == "Notenspiegel":
         st.info("Noch keine Noten eingetragen.")
 
 # =========================================================================
-# MODUS 4: KROKO-LERNZENTRUM (STOFF, SCHRIFTSTUDIE & CHALLENGES)
+# MODUS 4: KROKO-LERNZENTRUM
 # =========================================================================
 elif st.session_state.app_mode == "Lernzentrum":
     st.html("<div class='gaming-container'>")
@@ -763,7 +771,7 @@ elif st.session_state.app_mode == "Lernzentrum":
                         st.warning("Bitte gib eine Antwort ein oder sprich sie ein!")
     else: st.info("Alles fehlerfrei! Keine ungelösten Kuckuckseier auf dem Radar.")
 
-    with st.expander("📸 Korrigierte Arbeiten einsenden (Nutzt gelerntes Schriftprofil)"):
+    with st.expander("📸 Korrigierte Arbeiten einsenden"):
         uploaded_corrs = st.file_uploader("Bilder hochladen (auch AirDrop):", type=["jpg", "jpeg", "png", "heic"], accept_multiple_files=True)
         corr_sub = st.selectbox("Für welches Fach?", st.session_state.subjects, key="corr_sub_box")
         if st.button("Scans starten 👁️") and uploaded_corrs:

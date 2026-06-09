@@ -162,7 +162,7 @@ def process_user_input(input_text, uploaded_image=None):
     grades_context = st.session_state.grades
 
     prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
-    Deine Aufgabe ist es, Schüler strategisch zu beraten, Noten zu tracken, hochgeladenen Stoff zu analysieren UND das Dashboard zu steuern.
+    Deine Aufgabe ist es, Schüler strategisch zu beraten, Noten zu tracken, hochgeladenen Stoff zu analysieren UND das Dashboard fehlerfrei zu steuern.
 
     HEUTIGES DATUM: {weekday_str}, der {now_str}
     Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
@@ -172,19 +172,19 @@ def process_user_input(input_text, uploaded_image=None):
 
     User-Nachricht: "{input_text}"
 
-    STRIKTE REGELN FÜR PROAKTIVE LERNPLANUNG & NOTEN:
-    1. Wenn der User eine Note meldet (z.B. eine 4 oder 5), speichere diese im Feld 'grade_to_add'.
-    2. Wenn eine Note schlecht ist (z.B. 4 oder 5) ODER der User explizit nach Hilfe für ein Fach fragt, generiere AUTOMATISCH einen mehrtägigen, adaptiven Lernplan (z.B. über die nächsten 5-8 Tage verteilt). Packe JEDEN Tag als eigenen Eintrag in die 'tasks_to_add' Liste mit Typ 'Lernplan' und berechnetem Zieldatum!
-    3. Falls ein Bild mitgeschickt wurde, analysiere den Text/Lernstoff auf dem Bild penibel und erstelle daraus passende Hausaufgaben oder Lernpläne.
+    STRIKTE TRENNUNGS-REGELN FÜR DIE STRUKTUR:
+    1. Wenn der User einen neuen TEST oder eine HAUSAUFGABE meldet, erstelle EINEN Eintrag mit Typ 'Test' oder 'Hausaufgabe'. Der 'summary'-Wert dieses Eintrags darf NIEMALS Bezeichnungen wie "Tag X" enthalten! Er muss sauber den Test benennen (z.B. "Deutsch-Test" oder "Schularbeit zu Thema X").
+    2. Generiere zusätzlich für jeden angekündigten Test AUTOMATISCH einen mehrtägigen Lernplan (verteilt auf die Tage VOR dem Test). Jeder dieser Vorbereitungsschritte kommt als EIGENER Eintrag in die Liste mit Typ 'Lernplan'. NUR hier im Typ 'Lernplan' verwendest du Bezeichnungen wie "Tag 1: Grundlagen wiederholen", "Tag 2: Textverständnis" etc.
+    3. Wenn der User eine Note meldet (z.B. eine 4 oder 5), speichere diese im Feld 'grade_to_add' und generiere ebenfalls einen mehrtägigen Lernplan (Typ 'Lernplan') zur Notenverbesserung.
 
     Antworte AUSSCHLIESSLICH im validen JSON-Format:
     {{
-      "assistant_reply": "Deine persönliche, einfühlsame und motivierende Antwort/Planvorstellung für den Schüler.",
+      "assistant_reply": "Deine persönliche, motivierende Antwort an den Schüler.",
       "tasks_to_add": [
         {{
           "title": "Fachname (MUSS exakt aus der Liste sein)",
           "type": "Test" oder "Hausaufgabe" oder "Lernplan",
-          "summary": "z.B. Tag 1: Bruchrechnen Grundlagen",
+          "summary": "Sauberer Titel (NUR bei Typ Lernplan mit 'Tag X:' beginnen!)",
           "prioritaet": "🚨 Hoch" oder "🟡 Mittel" oder "🟢 Niedrig",
           "termin": "DD.MM.YYYY"
         }}
@@ -224,16 +224,18 @@ def process_user_input(input_text, uploaded_image=None):
             
         if result.get("tasks_to_add"):
             for i, t in enumerate(result["tasks_to_add"]):
-                st.session_state.tasks.insert(0, {
-                    "title": t.get("title"), "type": t.get("type", "Lernplan"), "summary": t.get("summary"),
-                    "prioritaet": t.get("prioritaet", "🟡 Mittel"),
-                    "notes": "Automatisch generierter KI-Lernschritt." if t.get("type") == "Lernplan" else input_text,
-                    "termin": t.get("termin"), "erstellt_am": now_str, "id": f"ai_{datetime.utcnow().timestamp()}_{i}_{t.get('title')}"
-                })
+                # STRIKTE RE-ACTIVATED DEDUPLIZIERUNGSSPPERRE
+                if not any(old.get("title") == t.get("title") and old.get("summary") == t.get("summary") and old.get("termin") == t.get("termin") for old in st.session_state.tasks):
+                    st.session_state.tasks.insert(0, {
+                        "title": t.get("title"), "type": t.get("type", "Lernplan"), "summary": t.get("summary"),
+                        "prioritaet": t.get("prioritaet", "🟡 Mittel"),
+                        "notes": "Automatisch generierter KI-Lernschritt." if t.get("type") == "Lernplan" else input_text,
+                        "termin": t.get("termin"), "erstellt_am": now_str, "id": f"ai_{datetime.utcnow().timestamp()}_{i}_{t.get('title')}"
+                    })
         
         display_text = input_text if input_text and input_text.strip() != "" else "📸 [Bild hochgeladen]"
         st.session_state.messages.append({"role": "user", "content": display_text})
-        st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Lernplan generiert und angepasst! 🐊")})
+        st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Daten aktualisiert! 🐊")})
         
         save_to_supabase({
             "tasks": st.session_state.tasks, "messages": st.session_state.messages, 
@@ -241,7 +243,7 @@ def process_user_input(input_text, uploaded_image=None):
             "grades": st.session_state.grades
         })
     except Exception as e: 
-        st.error(f"Reasoning-Schnittstellen Fehler: {e}")
+        st.error(f"Schnittstellen Fehler: {e}")
     st.rerun()
 
 # =========================================================================
@@ -284,7 +286,6 @@ with st.sidebar:
     filter_subject = st.selectbox("Fach auswählen:", ["Alle Fächer"] + st.session_state.subjects)
     st.write("---")
 
-    # RESTORED: DAS MIKROFON IST WIEDER DA!
     st.subheader("🎙️ Sprachbefehl")
     audio_file = st.audio_input("Sprachnachricht aufnehmen:")
     if audio_file and st.button("🚀 Sprache senden", use_container_width=True):
@@ -292,7 +293,6 @@ with st.sidebar:
         if text_from_speech: process_user_input(text_from_speech)
     st.write("---")
 
-    # CAMERA FEATURE
     st.subheader("📸 Lernstoff einsenden")
     uploaded_img = st.file_uploader("Bild/Angabe hochladen:", type=["jpg", "jpeg", "png"])
     if uploaded_img and st.button("🚀 Bild abschicken", use_container_width=True):

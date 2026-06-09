@@ -147,7 +147,6 @@ if "xp" not in st.session_state: st.session_state.xp = 0
 if "streak" not in st.session_state: st.session_state.streak = 0
 if "flashcards" not in st.session_state: st.session_state.flashcards = []
 if "card_flipped" not in st.session_state: st.session_state.card_flipped = False
-if "card_ki_response" not in st.session_state: st.session_state.card_ki_response = ""
 if "card_idx" not in st.session_state: st.session_state.card_idx = 0
 if "notified_task_ids" not in st.session_state: st.session_state.notified_task_ids = []
 if "gaming_quests" not in st.session_state: st.session_state.gaming_quests = []
@@ -230,9 +229,18 @@ def save_all_to_db():
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
     with st.spinner("Überlege... 🐊"):
-        now_str = datetime.now().strftime("%d.%m.%Y")
+        now = datetime.now()
+        now_str = now.strftime("%d.%m.%Y")
+        wochentage = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+        heute_wochentag = wochentage[now.weekday()]
+
         prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
-        Heute ist der {now_str}.
+        HEUTE IST: {heute_wochentag}, der {now_str}.
+        
+        WICHTIGE ANWEISUNG ZUM DATUM:
+        Wenn der User relative Zeitangaben macht (z.B. "morgen", "übermorgen", "nächsten Freitag"), berechne das Zieldatum ausgehend von {heute_wochentag}, {now_str}.
+        Rechne mathematisch präzise!
+
         Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
         Aktuelle Aufgaben auf dem Board: {json.dumps(st.session_state.tasks, ensure_ascii=False)}
 
@@ -255,7 +263,6 @@ def process_user_input(input_text, uploaded_image=None):
             response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": content_payload}], response_format={"type": "json_object"}, temperature=0.1)
             result = json.loads(response.choices[0].message.content.strip())
             
-            # Aufgaben einspeisen
             if result.get("tasks_to_add"):
                 for i, t in enumerate(result["tasks_to_add"]):
                     st.session_state.tasks.insert(0, {
@@ -263,7 +270,6 @@ def process_user_input(input_text, uploaded_image=None):
                         "termin": t.get("termin"), "id": f"ai_{datetime.utcnow().timestamp()}_{i}"
                     })
                     
-            # Chat-Nachrichten synchronisieren
             st.session_state.messages.append({"role": "user", "content": input_text if input_text else "📸 [Bild hochgeladen]"})
             st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Erledigt! 🐊")})
             
@@ -351,14 +357,6 @@ with st.sidebar:
                 save_all_to_db()
                 st.success(f"Profil '{cleaned_name}' gestartet!")
                 st.rerun()
-        
-        if len(st.session_state.available_profiles) > 1:
-            if st.button("🗑️ Aktuelles Profil niedrig machen", use_container_width=True, type="secondary"):
-                dead_user = st.session_state.user_id
-                st.session_state.available_profiles.remove(dead_user)
-                st.session_state.user_id = st.session_state.available_profiles[0]
-                st.warning(f"Profil '{dead_user}' wurde entfernt.")
-                st.rerun()
 
 # =========================================================================
 # MODUS 1: DASHBOARD & WORKSPACE BOARD
@@ -396,13 +394,13 @@ if st.session_state.app_mode == "Dashboard":
             """)
         st.html("</div>")
 
-    with st.expander(f"💬 KI-Lerncoach & Mentor", expanded=True):
+    with st.expander(f"💬 KI-Lerncoach & Mentor (Sprach- & Bild-Support)", expanded=True):
         for msg in st.session_state.messages[-4:]:
             with st.chat_message(msg["role"]): st.write(msg["content"])
         with st.form("quick_chat_form", clear_on_submit=True):
             f_col1, f_col2, f_col3 = st.columns([4, 3, 1], vertical_alignment="center")
-            with f_col1: c_text = st.text_input("Frag Kroko...", key="chat_in", label_visibility="collapsed")
-            with f_col2: c_audio = st.audio_input("Sprechen", key="chat_aud", label_visibility="collapsed")
+            with f_col1: c_text = st.text_input("Frag Kroko oder diktiere...", key="chat_in", label_visibility="collapsed")
+            with f_col2: c_audio = st.audio_input("Diktieren", key="chat_aud", label_visibility="collapsed")
             with f_col3: submit = st.form_submit_button("🚀", use_container_width=True)
             if submit:
                 final_text = c_text.strip() if c_text else ""
@@ -468,19 +466,24 @@ elif st.session_state.app_mode == "Karteikarten":
 
     st.write("---")
     
-    with st.expander("🤖 Blitzschnelle KI-Karten schmieden", expanded=False):
+    with st.expander("🤖 Blitzschnelle KI-Karten schmieden (mit Sprachsteuerung)", expanded=False):
         with st.form("ki_card_generation_form"):
             ki_sub = st.selectbox("Fach:", st.session_state.subjects, key="ki_card_sub")
-            ki_topic = st.text_input("Thema / Stoffgebiet:", placeholder="z.B. Vokabeln Unidad 2, Deklinationen...")
+            ki_text_wish = st.text_input("Thema / Stoffgebiet:", placeholder="z.B. Vokabeln Unidad 2, Deklinationen...")
+            ki_aud_wish = st.audio_input("Thema per Sprache einsprechen:")
             ki_diff = st.select_slider("Schwierigkeitsgrad:", options=["Sehr Einfach", "Mittel", "Schwer / Knifflig"], value="Mittel")
             ki_count = st.number_input("Anzahl der Karten:", min_value=1, max_value=12, value=5)
-            ki_custom_wish = st.text_input("Spezielle Zusatzwünsche an Kroko:", placeholder="z.B. Fokus auf Verben...")
             
             if st.form_submit_button("🔥 KI-Karten erschaffen"):
-                if ki_topic:
+                final_topic = ki_text_wish.strip() if ki_text_wish else ""
+                if ki_aud_wish:
+                    trans = transcribe_audio(ki_aud_wish)
+                    if trans: final_topic = f"{final_topic} {trans}".strip()
+                
+                if final_topic:
                     with st.spinner("Kroko designt deine Premium-Karten... 🐊"):
-                        ki_prompt = f"""Erstelle exakt {ki_count} Karteikarten für das Schulfach '{ki_sub}' zum Thema '{ki_topic}'.
-                        Schwierigkeit: {ki_diff}. Extra-Wünsche: {ki_custom_wish}.
+                        ki_prompt = f"""Erstelle exakt {ki_count} Karteikarten für das Schulfach '{ki_sub}' zum Thema '{final_topic}'.
+                        Schwierigkeit: {ki_diff}.
                         Antworte AUSSCHLIESSLICH im folgendem validen JSON-Format:
                         {{
                           "flashcards": [
@@ -502,7 +505,7 @@ elif st.session_state.app_mode == "Karteikarten":
                             time.sleep(1); st.rerun()
                         except Exception as e: st.error(f"Fehler beim Generieren: {e}")
                 else:
-                    st.warning("Bitte gib ein Thema ein!")
+                    st.warning("Bitte gib ein Thema ein oder nutze die Sprachnachricht!")
 
     with st.expander("➕ Klassisch manuelle Lernkarte hinzufügen", expanded=False):
         with st.form("add_card_form"):
@@ -591,7 +594,9 @@ elif st.session_state.app_mode == "Lernzentrum":
     
     st.write("---")
     st.subheader("✍️ Musterschrift-Gedächtnis (Schrift lernen)")
-    with st.expander("Bringe Kroko deine persönliche Handschrift bei"):
+    with st.expander("Bringe Kroko deine persönliche Handschrift bei", expanded=False):
+        # FIXED: Musterschrift-Vorlagentext wieder integriert
+        st.info("📝 **Schreibe bitte folgenden Satz auf ein Blatt Papier und lade das Foto hoch:**\n\n*„Franz jagt im komplett verwahrlosten Taxi quer durch Bayern. Kroko lernt 12345!“*")
         sample_img = st.file_uploader("Foto deiner Handschriftprobe hochladen:", type=["jpg", "jpeg", "png"])
         if st.button("Schriftprobe analysieren!") and sample_img:
             with st.spinner("Analysiere..."):
@@ -617,22 +622,33 @@ elif st.session_state.app_mode == "Lernzentrum":
         for idx, egg in enumerate(st.session_state.kuckuckseier):
             st.html(f"<div class='kuckucksei-box'><h4>⚠️ Kuckucksei #{idx+1}</h4><p><b>Fach:</b> {egg['subject']} | <b>Fehler:</b> {egg['error_found']}</p><p><b>⚔️ Challenge:</b> {egg['training_task']}</p></div>")
             with st.form(f"solve_egg_form_{idx}"):
-                ans = st.text_area("Deine Antwort:", key=f"egg_ans_{idx}")
+                # FIXED: Sprachnachrichten-Support für Kuckuckseier hinzugefügt
+                ans_text = st.text_area("Deine Antwort (Text):", key=f"egg_ans_txt_{idx}")
+                ans_audio = st.audio_input("Oder sprich deine Lösung ein:", key=f"egg_ans_aud_{idx}")
+                
                 if st.form_submit_button("Lösung einreichen!"):
-                    with st.spinner("Prüfe..."):
-                        try:
-                            chk = client.chat.completions.create(
-                                model="gpt-4o-mini",
-                                messages=[{"role": "user", "content": f"Aufgabe: {egg['training_task']}\nAntwort: {ans}\nKorrekt? JSON: {{'correct': true/false, 'feedback': '...'}}"}],
-                                response_format={"type": "json_object"}
-                            )
-                            eval_res = json.loads(chk.choices[0].message.content.strip())
-                            if eval_res.get("correct") == True:
-                                st.success("🎉 Gefixt! +30 XP")
-                                st.session_state.xp += 30; st.session_state.kuckuckseier.pop(idx)
-                                save_all_to_db(); time.sleep(1); st.rerun()
-                            else: st.error(f"❌ {eval_res.get('feedback')}")
-                        except Exception: pass
+                    final_ans = ans_text.strip() if ans_text else ""
+                    if ans_audio:
+                        trans = transcribe_audio(ans_audio)
+                        if trans: final_ans = f"{final_ans} {trans}".strip()
+                        
+                    if final_ans:
+                        with st.spinner("Prüfe..."):
+                            try:
+                                chk = client.chat.completions.create(
+                                    model="gpt-4o-mini",
+                                    messages=[{"role": "user", "content": f"Aufgabe: {egg['training_task']}\nAntwort: {final_ans}\nKorrekt? JSON: {{'correct': true/false, 'feedback': '...'}}"}],
+                                    response_format={"type": "json_object"}
+                                )
+                                eval_res = json.loads(chk.choices[0].message.content.strip())
+                                if eval_res.get("correct") == True:
+                                    st.success("🎉 Gefixt! +30 XP")
+                                    st.session_state.xp += 30; st.session_state.kuckuckseier.pop(idx)
+                                    save_all_to_db(); time.sleep(1); st.rerun()
+                                else: st.error(f"❌ {eval_res.get('feedback')}")
+                            except Exception: pass
+                    else:
+                        st.warning("Bitte gib eine Antwort ein oder sprich sie ein!")
     else: st.info("Alles fehlerfrei!")
 
     with st.expander("📸 Korrigierte Arbeiten einsenden"):

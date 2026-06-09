@@ -43,7 +43,7 @@ st.html("""
 """)
 
 # =========================================================================
-# TIMELINE- & COUNTDOWN-LOGIK (REIN VISUELL)
+# TIMELINE- & COUNTDOWN-LOGIK
 # =========================================================================
 def get_days_left_string(termin_str):
     if not termin_str: return ""
@@ -73,16 +73,21 @@ def is_within_next_fortnight(termin_str):
     return False
 
 # =========================================================================
-# PERSISTENZ-SYSTEM (SUPABASE SYNC)
+# PERSISTENZ-SYSTEM (SABOTAGE-SICHERES SUPABASE SYNC)
 # =========================================================================
 def load_from_supabase():
     headers = {"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"}
     url = f"{SUPABASE_URL}/rest/v1/studytutor_data?id=eq.{USER_ID}&select=app_state"
     try:
         response = requests.get(url, headers=headers)
-        if response.status_code == 200 and response.json():
-            return response.json()[0].get('app_state')
-    except Exception: pass
+        if response.status_code == 200:
+            res_json = response.json()
+            if res_json:
+                return res_json[0].get('app_state')
+        else:
+            st.sidebar.error(f"❌ DB-Ladefehler: {response.status_code}")
+    except Exception as e: 
+        st.sidebar.error(f"🚨 Lade-Exception: {e}")
     return None
 
 def save_to_supabase(state_data):
@@ -91,23 +96,30 @@ def save_to_supabase(state_data):
         "apikey": SUPABASE_ANON_KEY, 
         "Authorization": f"Bearer {SUPABASE_ANON_KEY}", 
         "Content-Type": "application/json", 
-        "Prefer": "on-conflict=id, resolution=merge-duplicates"
+        "Prefer": "on-conflict=id"
     }
     url = f"{SUPABASE_URL}/rest/v1/studytutor_data"
     payload = {"id": USER_ID, "app_state": state_data, "updated_at": datetime.utcnow().isoformat()}
     try: 
+        # 1. Versuch via POST (Upsert)
         res = requests.post(url, headers=headers, json=payload)
-        if res.status_code not in [200, 201]:
-            patch_url = f"{SUPABASE_URL}/rest/v1/studytutor_data?id=eq.{USER_ID}"
-            requests.patch(patch_url, headers=headers, json={"app_state": state_data, "updated_at": datetime.utcnow().isoformat()})
-            st.sidebar.success("☁️ Cloud-Backup aktualisiert!")
+        if res.status_code in [200, 201]:
+            st.sidebar.success("☁️ Daten in Cloud gesichert!")
         else:
-            st.sidebar.success("☁️ Cloud-Backup aktualisiert!")
-    except Exception:
-        st.sidebar.error("🚨 Sync-Fehler")
+            # 2. Versuch via PATCH (Falls PostgREST den Upsert verweigert)
+            patch_url = f"{SUPABASE_URL}/rest/v1/studytutor_data?id=eq.{USER_ID}"
+            patch_res = requests.patch(patch_url, headers=headers, json={"app_state": state_data, "updated_at": datetime.utcnow().isoformat()})
+            if patch_res.status_code in [200, 204]:
+                st.sidebar.success("☁️ Daten in Cloud aktualisiert!")
+            else:
+                # ECHTE FEHLERMELDUNG ANZEIGEN
+                st.sidebar.error(f"❌ DB-Fehler: POST {res.status_code} | PATCH {patch_res.status_code}")
+                st.sidebar.caption(f"Details: {patch_res.text}")
+    except Exception as e:
+        st.sidebar.error(f"🚨 Sync-Exception: {e}")
 
 # =========================================================================
-# SINGLE-BRAIN REASONING ENGINE (CHAT & BOARD IN EINEM SCHRITT)
+# SINGLE-BRAIN REASONING ENGINE
 # =========================================================================
 def transcribe_audio(audio_file):
     try:
@@ -122,7 +134,6 @@ def transcribe_audio(audio_file):
 def process_user_input(input_text):
     if not input_text or input_text.strip().lower() in ["you", "you.", ""]: return
 
-    # Bereite hochpräzisen Zeit-Kontext für das KI-Modell vor
     now = datetime.now()
     now_str = now.strftime("%d.%m.%Y")
     wochentage_map = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
@@ -141,7 +152,7 @@ def process_user_input(input_text):
 
     User-Nachricht: "{input_text}"
 
-    STRIKTE RECHELN FÜR REASONING UND DATUM:
+    STRIKTE REGELN FÜR REASONING UND DATUM:
     1. Berechne das Zieldatum im Format DD.MM.YYYY mathematisch präzise basierend auf heute ({now_str}, {weekday_str}).
     2. Wenn heute {weekday_str} ist und der User sagt "nächste Woche Mittwoch", meint er NICHT den morgigen bzw. diese Woche stattfindenden Mittwoch, sondern den Mittwoch der DARAUFFOLGENDEN Woche. Rechne das exakt aus!
     3. Wenn der User sagt, eine Aufgabe sei erledigt, findet nicht statt oder soll gelöscht werden, suche die passende ID aus der Liste der 'Aktuellen Aufgaben' heraus und setze sie in 'tasks_to_delete'.
@@ -173,14 +184,11 @@ def process_user_input(input_text):
         
         result = json.loads(response.choices[0].message.content.strip())
         
-        # 1. Ausführen der Löschungen (Bulletproof über ID)
         if result.get("tasks_to_delete"):
             st.session_state.tasks = [t for t in st.session_state.tasks if t.get("id") not in result["tasks_to_delete"]]
             
-        # 2. Ausführen der Neuzugänge
         if result.get("tasks_to_add"):
             for t in result["tasks_to_add"]:
-                # Dubletten-Schutz
                 if not any(old.get("title") == t["title"] and old.get("summary") == t["summary"] and old.get("termin") == t["termin"] for old in st.session_state.tasks):
                     st.session_state.tasks.insert(0, {
                         "title": t.get("title"),
@@ -192,11 +200,9 @@ def process_user_input(input_text):
                         "id": f"ai_{datetime.utcnow().timestamp()}_{t.get('title')}"
                     })
         
-        # 3. Chatverlauf füllen
         st.session_state.messages.append({"role": "user", "content": input_text})
         st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Erledigt!")})
         
-        # In Cloud sichern
         save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
         
     except Exception as e: 
@@ -215,7 +221,7 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Dein synchronisiertes Pro-Board läuft fehlerfrei!"}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Dein Pro-Board läuft. Lass uns testen, ob die Cloud hält!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
@@ -294,7 +300,7 @@ with col1:
                 save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
                 st.rerun()
 
-# SPALTE 2: CHRONOLOGISCHE TIMELINE (NUR NÄCHSTE 14 TAGE)
+# SPALTE 2: TIMELINE (NUR NÄCHSTE 14 TAGE)
 with col2:
     st.html("<div class='column-header'><span style='color: #f59e0b;'>🟡</span> Diese & Nächste Woche</div>")
     upcoming = [t for t in active_tasks if t.get("type") in ["Hausaufgabe", "Test"] and is_within_next_fortnight(t.get("termin", ""))]

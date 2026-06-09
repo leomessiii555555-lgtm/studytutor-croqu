@@ -623,7 +623,7 @@ elif st.session_state.app_mode == "Notenspiegel":
             save_all_to_db(); st.success("Eingetragen!"); st.rerun()
 
     if st.session_state.grades:
-        st.write("### 📈 Deine Fachübersichten & präzise Schninned")
+        st.write("### 📈 Deine Fachübersichten & präzise Schnitte")
         for s in st.session_state.subjects:
             sub_grades = [g for g in st.session_state.grades if g["subject"] == s]
             if sub_grades:
@@ -651,9 +651,13 @@ elif st.session_state.app_mode == "Notenspiegel":
                 elif has_test:
                     avg = sum(test_list) / len(test_list)
                     details = "(Bisher nur Testnote)"
-                else:
+                elif has_mit:
                     avg = sum(mit_list) / len(mit_list)
                     details = "(Bisher nur Mitarbeit)"
+                else:
+                    alle_noten = [g["grade"] for g in sub_grades]
+                    avg = sum(alle_noten) / len(alle_noten) if len(alle_noten) > 0 else 0.0
+                    details = "(Allgemeiner Durchschnitt - Kategorie ungenau)"
                 
                 st.markdown(f"#### **{s}** — Errechneter Stand: **{avg:.2f}**")
                 st.caption(f"ℹ️ *{details}*")

@@ -103,6 +103,7 @@ if "streak" not in st.session_state: st.session_state.streak = 0
 if "flashcards" not in st.session_state: st.session_state.flashcards = []
 if "card_flipped" not in st.session_state: st.session_state.card_flipped = False
 if "card_ki_response" not in st.session_state: st.session_state.card_ki_response = ""
+if "card_idx" not in st.session_state: st.session_state.card_idx = 0
 
 # =========================================================================
 # UTILITIES & IMAGE ENCODING
@@ -314,6 +315,7 @@ if "initialized_user" not in st.session_state or st.session_state.initialized_us
         st.session_state.flashcards = []
     st.session_state.card_flipped = False
     st.session_state.card_ki_response = ""
+    st.session_state.card_idx = 0
     st.session_state.initialized_user = st.session_state.user_id
 
 # =========================================================================
@@ -391,6 +393,7 @@ with st.sidebar:
         st.session_state.flashcards = []
         st.session_state.card_flipped = False
         st.session_state.card_ki_response = ""
+        st.session_state.card_idx = 0
         st.session_state.messages = [{"role": "assistant", "content": "Zurückgesetzt."}]
         save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": 0, "grades": [], "xp": 0, "streak": 0, "flashcards": []})
         st.rerun()

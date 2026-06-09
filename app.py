@@ -152,6 +152,7 @@ if "notified_task_ids" not in st.session_state: st.session_state.notified_task_i
 if "gaming_quests" not in st.session_state: st.session_state.gaming_quests = []
 if "kuckuckseier" not in st.session_state: st.session_state.kuckuckseier = []
 if "handwriting_analysis" not in st.session_state: st.session_state.handwriting_analysis = ""
+if "active_summary" not in st.session_state: st.session_state.active_summary = ""
 
 # =========================================================================
 # UTILITIES
@@ -296,7 +297,8 @@ if "initialized_user" not in st.session_state or st.session_state.initialized_us
         st.session_state.handwriting_analysis = db_state.get("handwriting_analysis", "")
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": f"Hi {st.session_state.user_id}! 🐊 Lass uns loslegen!"}]
+        # Sauberes, frisches Starten des Chats für die neue Konversation
+        st.session_state.messages = [{"role": "assistant", "content": f"Hi {st.session_state.user_id}! 🐊 Ich habe den Chat für uns zurückgesetzt. Alles ist frisch. Wie kann ich dir heute helfen?"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
         st.session_state.completed_count = 0
         st.session_state.grades = []
@@ -397,6 +399,15 @@ if st.session_state.app_mode == "Dashboard":
     with st.expander(f"💬 KI-Lerncoach & Mentor (Sprach- & Bild-Support)", expanded=True):
         for msg in st.session_state.messages[-4:]:
             with st.chat_message(msg["role"]): st.write(msg["content"])
+            
+        c_btn1, c_btn2 = st.columns([6, 1])
+        with c_btn2:
+            # Funktion zum manuellen Leeren/Zurücksetzen des aktuellen Chats
+            if st.button("🗑️ Reset", help="Löscht den aktuellen Chatverlauf"):
+                st.session_state.messages = [{"role": "assistant", "content": f"Hi {st.session_state.user_id}! Ich habe unseren Chat zurückgesetzt. Lass uns neu durchstarten! 🐊"}]
+                save_all_to_db()
+                st.rerun()
+                
         with st.form("quick_chat_form", clear_on_submit=True):
             f_col1, f_col2, f_col3 = st.columns([4, 3, 1], vertical_alignment="center")
             with f_col1: c_text = st.text_input("Frag Kroko oder diktiere...", key="chat_in", label_visibility="collapsed")
@@ -593,10 +604,42 @@ elif st.session_state.app_mode == "Lernzentrum":
     st.html("<h1 class='gaming-title'>🎯 Kroko-Lernzentrum (Fokus-Modus)</h1>")
     
     st.write("---")
+    # BRANDNEU: Voll funktionsfähiger Stoff-Zusammenfasser mit Speech-to-Text
+    st.subheader("📚 KI-Stoff-Zusammenfasser (mit Sprachnachrichten-Support)")
+    with st.expander("Lade Skripte hoch oder sprich deinen Lernstoff einfach ein!", expanded=True):
+        sum_text = st.text_area("Lernstoff reinkopieren:", placeholder="Füge hier dicken Text ein...", height=150)
+        sum_audio = st.audio_input("Oder diktiere deinen Stoff live per Sprachnachricht:")
+        sum_file = st.file_uploader("Optional: Textdatei (.txt) hochladen:", type=["txt"])
+        
+        if st.button("Stoff knackig zusammenfassen! ✨", use_container_width=True):
+            final_source = sum_text.strip() if sum_text else ""
+            if sum_file:
+                final_source += "\n" + sum_file.read().decode("utf-8")
+            if sum_audio:
+                with st.spinner("Transkribiere Sprachnachricht... 🎙️"):
+                    trans = transcribe_audio(sum_audio)
+                    if trans: final_source += "\n" + trans
+                    
+            if final_source.strip():
+                with st.spinner("Kroko destilliert die Kernpunkte heraus... 🐊"):
+                    try:
+                        res = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[{"role": "user", "content": f"Fasse folgenden Stoff hochstrukturiert zusammen. Nutze Bulletpoints, hebe Kernbegriffe fett hervor und mache es perfekt zum Lernen:\n\n{final_source}"}]
+                        )
+                        st.session_state.active_summary = res.choices[0].message.content.strip()
+                    except Exception as e: st.error(f"Fehler: {e}")
+            else:
+                st.warning("Bitte gib Text ein, uploade ein File oder sprich eine Nachricht ein!")
+                
+        if st.session_state.active_summary:
+            st.markdown("#### 📝 Deine fertige Zusammenfassung:")
+            st.info(st.session_state.active_summary)
+
+    st.write("---")
     st.subheader("✍️ Musterschrift-Gedächtnis (Schrift lernen)")
     with st.expander("Bringe Kroko deine persönliche Handschrift bei", expanded=False):
-        # FIXED: Musterschrift-Vorlagentext wieder integriert
-        st.info("📝 **Schreibe bitte folgenden Satz auf ein Blatt Papier und lade das Foto hoch:**\n\n*„Franz jagt im komplett verwahrlosten Taxi quer durch Bayern. Kroko lernt 12345!“*")
+        st.info("編 **Schreibe bitte folgenden Satz auf ein Blatt Papier und lade das Foto hoch:**\n\n*„Franz jagt im komplett verwahrlosten Taxi quer durch Bayern. Kroko lernt 12345!“*")
         sample_img = st.file_uploader("Foto deiner Handschriftprobe hochladen:", type=["jpg", "jpeg", "png"])
         if st.button("Schriftprobe analysieren!") and sample_img:
             with st.spinner("Analysiere..."):
@@ -622,7 +665,6 @@ elif st.session_state.app_mode == "Lernzentrum":
         for idx, egg in enumerate(st.session_state.kuckuckseier):
             st.html(f"<div class='kuckucksei-box'><h4>⚠️ Kuckucksei #{idx+1}</h4><p><b>Fach:</b> {egg['subject']} | <b>Fehler:</b> {egg['error_found']}</p><p><b>⚔️ Challenge:</b> {egg['training_task']}</p></div>")
             with st.form(f"solve_egg_form_{idx}"):
-                # FIXED: Sprachnachrichten-Support für Kuckuckseier hinzugefügt
                 ans_text = st.text_area("Deine Antwort (Text):", key=f"egg_ans_txt_{idx}")
                 ans_audio = st.audio_input("Oder sprich deine Lösung ein:", key=f"egg_ans_aud_{idx}")
                 

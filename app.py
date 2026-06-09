@@ -5,7 +5,17 @@ import json
 import re
 import base64
 import time
+import io
+import os
 from datetime import datetime, timedelta
+from PIL import Image
+
+# Automatischer Support für Apple AirDrop HEIC-Bilder, falls installiert
+try:
+    import piheif
+    piheif.register_heif_opener()
+except ImportError:
+    pass
 
 # =========================================================================
 # SICHERHEITS-KONFIGURATION & CLIENTS
@@ -155,10 +165,26 @@ if "handwriting_analysis" not in st.session_state: st.session_state.handwriting_
 if "active_summary" not in st.session_state: st.session_state.active_summary = ""
 
 # =========================================================================
-# UTILITIES
+# UTILITIES & FEHLERFREIE BILD-KONVERTIERUNG (ROBUST FÜR AIRDROP/HEIC)
 # =========================================================================
 def encode_image(uploaded_file):
-    return base64.b64encode(uploaded_file.read()).decode('utf-8')
+    try:
+        # Öffnet das Bild unabhängig vom Format (PNG, JPEG, HEIC durch piheif)
+        image = Image.open(uploaded_file)
+        
+        # Konvertiert in Standard-RGB (wichtig für JPEGs und Apple Farbprofile)
+        if image.mode in ("RGBA", "P", "CMYK"):
+            image = image.convert("RGB")
+            
+        # Speichert es temporär im Speicher als sauberes JPEG
+        buffer = io.BytesIO()
+        image.save(buffer, format="JPEG")
+        buffer.seek(0)
+        
+        return base64.b64encode(buffer.read()).decode('utf-8')
+    except Exception as e:
+        st.error(f"Fehler bei Bild-Verarbeitung (AirDrop/Format): {e}")
+        return None
 
 def transcribe_audio(audio_file):
     try:
@@ -227,6 +253,9 @@ def save_all_to_db():
         "kuckuckseier": st.session_state.kuckuckseier, "handwriting_analysis": st.session_state.handwriting_analysis
     })
 
+# =========================================================================
+# CORE KI ENGINE MIT INTEGRATION DES GECHECKTEN SCHRIFTPROFILS
+# =========================================================================
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
     with st.spinner("Überlege... 🐊"):
@@ -235,9 +264,14 @@ def process_user_input(input_text, uploaded_image=None):
         wochentage = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
         heute_wochentag = wochentage[now.weekday()]
 
+        # AKTIVES HANDSCHRIFTEN-GEDÄCHTNIS EINSPEISEN
+        handwriting_context = ""
+        if st.session_state.get("handwriting_analysis"):
+            handwriting_context = f"\nINFO ZUR HANDSCHRIFT DES SCHÜLERS: Beachte beim Auslesen und Entziffern von Bildern das gelernte Schriftprofil des Schülers: {st.session_state.handwriting_analysis}"
+
         # HOCHPRÄZISE DATUMS-ANWEISUNG UM FEHLBERECHNUNGEN ZU VERHINDERN
         prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
-        HEUTE IST: {heute_wochentag}, der {now_str}.
+        HEUTE IST: {heute_wochentag}, der {now_str}.{handwriting_context}
         
         STRIKTE MATHEMATISCHE DATUMS-BERECHNUNG:
         Wenn der User relative Zeitangaben macht, berechne das exakte Datum ausgehend von heute ({now_str}):
@@ -262,9 +296,13 @@ def process_user_input(input_text, uploaded_image=None):
           "grade_to_add": null,
           "flashcards_to_add": []
         }}"""
+        
         content_payload = [{"type": "text", "text": prompt}]
         if uploaded_image:
-            content_payload.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encode_image(uploaded_image)}"} })
+            img_code = encode_image(uploaded_image)
+            if img_code:
+                content_payload.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_code}"} })
+                
         try:
             response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": content_payload}], response_format={"type": "json_object"}, temperature=0.1)
             result = json.loads(response.choices[0].message.content.strip())
@@ -280,7 +318,7 @@ def process_user_input(input_text, uploaded_image=None):
             st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Erledigt! 🐊")})
             
             save_all_to_db()
-        except Exception as e: st.error(f"Fehler: {e}")
+        except Exception as e: st.error(f"Fehler bei KI-Verarbeitung: {e}")
     st.rerun()
 
 # =========================================================================
@@ -532,7 +570,7 @@ elif st.session_state.app_mode == "Karteikarten":
                     save_all_to_db(); st.success("Karte hinzugefügt!"); st.rerun()
 
 # =========================================================================
-# MODUS 3: NOTENSPIEGEL
+# MODUS 3: NOTENSPIEGEL (ÖSTERREICHISCHE GEWICHTUNG)
 # =========================================================================
 elif st.session_state.app_mode == "Notenspiegel":
     st.title("📝 Dein persönlicher Notenspiegel (Österreichische Gewichtung)")
@@ -600,7 +638,7 @@ elif st.session_state.app_mode == "Notenspiegel":
         st.info("Noch keine Noten eingetragen.")
 
 # =========================================================================
-# MODUS 4: KROKO-LERNZENTRUM
+# MODUS 4: KROKO-LERNZENTRUM (STOFF, SCHRIFTSTUDIE & CHALLENGES)
 # =========================================================================
 elif st.session_state.app_mode == "Lernzentrum":
     st.html("<div class='gaming-container'>")
@@ -639,29 +677,33 @@ elif st.session_state.app_mode == "Lernzentrum":
             st.info(st.session_state.active_summary)
 
     st.write("---")
-    st.subheader("✍️ Musterschrift-Gedächtnis (Schrift lernen)")
+    st.subheader("✍️ Musterschrift-Gedächtnis (Echtes KI-Schriftprofil)")
     with st.expander("Bringe Kroko deine persönliche Handschrift bei", expanded=False):
         st.info("📝 **Schreibe bitte folgenden Satz auf ein Blatt Papier und lade das Foto hoch:**\n\n*„Franz jagt im komplett verwahrlosten Taxi quer durch Bayern. Kroko lernt 12345!“*")
-        sample_img = st.file_uploader("Foto deiner Handschriftprobe hochladen:", type=["jpg", "jpeg", "png"])
-        if st.button("Schriftprobe analysieren!") and sample_img:
-            with st.spinner("Analysiere..."):
+        sample_img = st.file_uploader("Foto deiner Handschriftprobe hochladen (unterstützt AirDrop & Handys):", type=["jpg", "jpeg", "png", "heic"])
+        if st.button("Schriftprobe analysieren und abspeichern! 🧠") and sample_img:
+            with st.spinner("Kroko scannt die Struktur deiner Schrift..."):
                 img_b64 = encode_image(sample_img)
-                try:
-                    res = client.chat.completions.create(
-                        model="gpt-4o-mini",
-                        messages=[{"role": "user", "content": [
-                            {"type": "text", "text": "Analysiere die Handschrift."},
-                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
-                        ]}]
-                    )
-                    st.session_state.handwriting_analysis = res.choices[0].message.content.strip()
-                    save_all_to_db(); st.success("Erfolgreich gelernt!"); st.rerun()
-                except Exception as e: st.error(f"Fehler: {e}")
+                if img_b64:
+                    try:
+                        res = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[{"role": "user", "content": [
+                                {"type": "text", "text": "Analysiere den Schreibstil, die Neigung, die Buchstabenabstände und typische Charakteristika dieser Handschrift sehr detailliert, damit wir dieses Profil in Zukunft als Entzifferungshilfe nutzen können."},
+                                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
+                            ]}]
+                        )
+                        st.session_state.handwriting_analysis = res.choices[0].message.content.strip()
+                        save_all_to_db()
+                        st.success("🎉 Schriftprofil erfolgreich gelernt und im KI-Gedächtnis verankert!")
+                        time.sleep(1); st.rerun()
+                    except Exception as e: st.error(f"Fehler bei Analyse: {e}")
         if st.session_state.handwriting_analysis:
-            st.caption(f"**Schriftprofil:** {st.session_state.handwriting_analysis}")
+            st.success("🤖 Kroko nutzt aktuell dieses aktive Lese-Profil für dich:")
+            st.info(st.session_state.handwriting_analysis)
 
     st.write("---")
-    st.subheader("🥚 Deine aktiven Kuckuckseier")
+    st.subheader("🥚 Deine aktiven Kuckuckseier (Aus Fehlern lernen)")
     
     if st.session_state.kuckuckseier:
         for idx, egg in enumerate(st.session_state.kuckuckseier):
@@ -693,24 +735,26 @@ elif st.session_state.app_mode == "Lernzentrum":
                             except Exception: pass
                     else:
                         st.warning("Bitte gib eine Antwort ein oder sprich sie ein!")
-    else: st.info("Alles fehlerfrei!")
+    else: st.info("Alles fehlerfrei! Keine ungelösten Kuckuckseier auf dem Radar.")
 
-    with st.expander("📸 Korrigierte Arbeiten einsenden"):
-        uploaded_corrs = st.file_uploader("Bilder hochladen:", type=["jpg", "jpeg", "png"], accept_multiple_files=True)
+    with st.expander("📸 Korrigierte Arbeiten einsenden (Nutzt gelerntes Schriftprofil)"):
+        uploaded_corrs = st.file_uploader("Bilder hochladen (auch AirDrop):", type=["jpg", "jpeg", "png", "heic"], accept_multiple_files=True)
         corr_sub = st.selectbox("Für welches Fach?", st.session_state.subjects, key="corr_sub_box")
         if st.button("Scans starten 👁️") and uploaded_corrs:
-            with st.spinner("Kroko scannt..."):
+            with st.spinner("Kroko scannt mit geschärftem Schriftblick..."):
+                profile_text = st.session_state.get("handwriting_analysis", "Normale Schülerschrift")
                 for f in uploaded_corrs[:4]:
                     img_b64 = encode_image(f)
-                    scan_prompt = f"Finde Fehler für {corr_sub}. Antworte als JSON: {{ 'error_found': '...', 'training_task': '...' }}"
-                    try:
-                        res = client.chat.completions.create(
-                            model="gpt-4o-mini", messages=[{"role": "user", "content": [{"type": "text", "text": scan_prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}]}],
-                            response_format={"type": "json_object"}
-                        )
-                        scan_res = json.loads(res.choices[0].message.content.strip())
-                        st.session_state.kuckuckseier.append({"subject": corr_sub, "error_found": scan_res.get("error_found"), "training_task": scan_res.get("training_task")})
-                    except Exception: pass
+                    if img_b64:
+                        scan_prompt = f"Finde Fehler für das Schulfach {corr_sub}. Das gelernte Schriftprofil des Schülers zur fehlerfreien Entzifferung ist: {profile_text}. Antworte exakt als JSON: {{ 'error_found': '...', 'training_task': '...' }}"
+                        try:
+                            res = client.chat.completions.create(
+                                model="gpt-4o-mini", messages=[{"role": "user", "content": [{"type": "text", "text": scan_prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}]}],
+                                response_format={"type": "json_object"}
+                            )
+                            scan_res = json.loads(res.choices[0].message.content.strip())
+                            st.session_state.kuckuckseier.append({"subject": corr_sub, "error_found": scan_res.get("error_found"), "training_task": scan_res.get("training_task")})
+                        except Exception: pass
                 save_all_to_db(); st.rerun()
 
     st.write("---")

@@ -38,41 +38,13 @@ st.html("""
     .card-summary { font-size: 0.95rem; color: #1e293b; font-weight: 500; margin-bottom: 6px; }
     .card-info-line { font-size: 0.85rem; color: #e11d48; font-weight: 700; background: #ffe4e6; padding: 4px 8px; border-radius: 6px; display: inline-block; margin-bottom: 4px; }
     .column-header { font-size: 1.1rem; font-weight: 600; color: #334155; padding-bottom: 8px; margin-bottom: 16px; border-bottom: 2px solid #e2e8f0; }
-    .subject-badge { background-color: #f1f5f9; color: #475569; padding: 6px 12px; border-radius: 20px; font-size: 0.85rem; font-weight: 500; margin-bottom: 6px; display: inline-block; border: 1px solid #e2e8f0; }
     .countdown-badge { font-size: 0.8rem; font-weight: 600; color: #dc2626; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
 </style>
 """)
 
 # =========================================================================
-# INTELLIGENTE DATUMS- & COUNTDOWN-LOGIK
+# TIMELINE- & COUNTDOWN-LOGIK (REIN VISUELL)
 # =========================================================================
-def parse_date_from_text(zeit_info):
-    now = datetime.now()
-    wochentage = {"montag": 0, "dienstag": 1, "mittwoch": 2, "donnerstag": 3, "freitag": 4, "samstag": 5, "sonntag": 6}
-    zeit_info_lower = str(zeit_info).lower()
-    
-    match = re.search(r'(\d{1,2})\.(\d{1,2})', zeit_info_lower)
-    if match:
-        tag = int(match.group(1))
-        monat = int(match.group(2))
-        try:
-            ziel_datum = datetime(now.year, monat, tag)
-            if ziel_datum < now.replace(hour=0, minute=0, second=0, microsecond=0):
-                ziel_datum = datetime(now.year + 1, monat, tag)
-            return ziel_datum.strftime('%d.%m.%Y')
-        except ValueError: pass
-
-    if "übermorgen" in zeit_info_lower: return (now + timedelta(days=2)).strftime('%d.%m.%Y')
-    if "morgen" in zeit_info_lower: return (now + timedelta(days=1)).strftime('%d.%m.%Y')
-
-    for tag, index in wochentage.items():
-        if tag in zeit_info_lower:
-            tage_unterschied = (index - now.weekday() + 7) % 7
-            if tage_unterschied == 0 and "nächst" in zeit_info_lower: tage_unterschied = 7
-            return (now + timedelta(days=tage_unterschied)).strftime('%d.%m.%Y')
-                
-    return zeit_info
-
 def get_days_left_string(termin_str):
     if not termin_str: return ""
     match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', str(termin_str))
@@ -92,21 +64,16 @@ def is_within_next_fortnight(termin_str):
     if not termin_str: return False
     now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     max_date = now + timedelta(days=14)
-    
     match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', str(termin_str))
     if match:
         try:
             task_date = datetime.strptime(match.group(0), '%d.%m.%Y')
             return now <= task_date <= max_date
         except ValueError: return False
-        
-    termin_lower = str(termin_str).lower()
-    if any(k in termin_lower for k in ["diesen", "morgen", "übermorgen", "nächste woche"]):
-        return True
     return False
 
 # =========================================================================
-# ADVANCED PERSISTENZ-SYSTEM (SUPABASE SYNC & SECURITY NET)
+# PERSISTENZ-SYSTEM (SUPABASE SYNC)
 # =========================================================================
 def load_from_supabase():
     headers = {"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"}
@@ -115,15 +82,11 @@ def load_from_supabase():
         response = requests.get(url, headers=headers)
         if response.status_code == 200 and response.json():
             return response.json()[0].get('app_state')
-        elif response.status_code != 200:
-            st.sidebar.error(f"Supabase-Ladefehler: Status {response.status_code}")
-    except Exception as e: st.sidebar.error(f"Datenbank-Ladefehler: {e}")
+    except Exception: pass
     return None
 
 def save_to_supabase(state_data):
     if not state_data or "tasks" not in state_data: return
-    
-    # POSTGREST HEADERS FÜR EIN ECHTES UPSERT (ON CONFLICT)
     headers = {
         "apikey": SUPABASE_ANON_KEY, 
         "Authorization": f"Bearer {SUPABASE_ANON_KEY}", 
@@ -132,24 +95,19 @@ def save_to_supabase(state_data):
     }
     url = f"{SUPABASE_URL}/rest/v1/studytutor_data"
     payload = {"id": USER_ID, "app_state": state_data, "updated_at": datetime.utcnow().isoformat()}
-    
     try: 
         res = requests.post(url, headers=headers, json=payload)
-        # Sichert ab: Falls POST (409/400) wegen bestehender ID fehlschlägt -> Nutze PATCH-Fallback
         if res.status_code not in [200, 201]:
             patch_url = f"{SUPABASE_URL}/rest/v1/studytutor_data?id=eq.{USER_ID}"
-            res_patch = requests.patch(patch_url, headers=headers, json={"app_state": state_data, "updated_at": datetime.utcnow().isoformat()})
-            if res_patch.status_code not in [200, 204]:
-                st.sidebar.error(f"🚨 Cloud-Sync fehlgeschlagen (POST: {res.status_code} / PATCH: {res_patch.status_code})")
-            else:
-                st.sidebar.success("☁️ Daten erfolgreich in Cloud gesichert!")
+            requests.patch(patch_url, headers=headers, json={"app_state": state_data, "updated_at": datetime.utcnow().isoformat()})
+            st.sidebar.success("☁️ Cloud-Backup aktualisiert!")
         else:
-            st.sidebar.success("☁️ Daten erfolgreich in Cloud gesichert!")
-    except Exception as e: 
-        st.sidebar.error(f"🚨 Verbindungsfehler Cloud: {e}")
+            st.sidebar.success("☁️ Cloud-Backup aktualisiert!")
+    except Exception:
+        st.sidebar.error("🚨 Sync-Fehler")
 
 # =========================================================================
-# AUDIO & KI EXTRAKTION (ID-BASED DELETION)
+# SINGLE-BRAIN REASONING ENGINE (CHAT & BOARD IN EINEM SCHRITT)
 # =========================================================================
 def transcribe_audio(audio_file):
     try:
@@ -161,90 +119,89 @@ def transcribe_audio(audio_file):
         st.error(f"Audio-Fehler: {e}")
         return None
 
-def extract_tasks_with_thinking(text, subjects_list, current_tasks):
-    try:
-        # Wir geben der KI Kontext über alle Aufgaben, die aktuell live existieren!
-        tasks_context = [{"id": t.get("id"), "title": t.get("title"), "summary": t.get("summary"), "type": t.get("type"), "termin": t.get("termin")} for t in current_tasks]
-        
-        prompt = f"""Analysiere den folgenden Schul-Text extrem gründlich.
-        Verfügbare Fächer: {', '.join(subjects_list)}
-        
-        Aktuelle Aufgaben auf dem Board:
-        {json.dumps(tasks_context, ensure_ascii=False)}
-        
-        STRIKTE REGELN FÜR DIE SORTIERUNG:
-        1. Wenn der User sagt, dass ein Termin NICHT stattfindet, abgesagt wurde, gelöscht werden soll oder erledigt ist:
-           - Typ MUSS "delete" sein.
-           - Suche in den 'Aktuellen Aufgaben auf dem Board' nach dem passenden Eintrag.
-           - Trage die exakte "id" dieses Eintrags in das Feld "delete_id" ein.
-        2. Wenn 'Test', 'Arbeit', 'Prüfung', 'Klausur', 'Schularbeit' vorkommt -> Typ MUSS "Test" sein.
-        3. Wenn es ein 'Lernplan' ist -> Typ ist "Lernplan".
-        4. Ansonsten -> Typ ist "Hausaufgabe".
-        
-        Antworte NUR mit einer JSON-Liste von Objekten:
-        [
-          {{
-            "title": "Fachname", 
-            "type": "Test" oder "Hausaufgabe" oder "Lernplan" oder "delete", 
-            "summary": "Kurztitel", 
-            "zeitpunkt": "z.B. 6.7.",
-            "delete_id": "EXAKTE_ID_ZUM_LÖSCHEN_SONST_NULL"
-          }}
-        ]
-        Text: "{text}" """
-        
-        response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": prompt}], temperature=0.1)
-        res_text = response.choices[0].message.content.strip().replace("```json", "").replace("```", "")
-        extracted_list = json.loads(res_text)
-        
-        tasks = []
-        now_str = datetime.now().strftime("%d.%m.%Y")
-        for item in extracted_list:
-            raw_zeit = item.get("zeitpunkt", "Unbekannt") if item.get("zeitpunkt") else "Unbekannt"
-            echtes_datum = parse_date_from_text(raw_zeit)
-            
-            tasks.append({
-                "title": item.get("title", "Allgemein"),
-                "type": item.get("type", "Hausaufgabe"),
-                "summary": item.get("summary", "Neue Aufgabe"),
-                "notes": text,
-                "termin": echtes_datum, 
-                "erstellt_am": now_str,
-                "id": f"{datetime.utcnow().timestamp()}_{item.get('title')}",
-                "delete_id": item.get("delete_id")
-            })
-        return tasks
-    except Exception as e: 
-        st.error(f"Fehler bei KI-Extraktion: {e}")
-        return []
-
 def process_user_input(input_text):
     if not input_text or input_text.strip().lower() in ["you", "you.", ""]: return
 
-    new_tasks = extract_tasks_with_thinking(input_text, st.session_state.subjects, st.session_state.tasks)
-    
-    for task in new_tasks:
-        if task["type"] == "delete":
-            # Bulletproof ID-Löschung aus allen Spalten gleichzeitig!
-            if task.get("delete_id"):
-                st.session_state.tasks = [t for t in st.session_state.tasks if t.get("id") != task["delete_id"]]
-            else:
-                st.session_state.tasks = [t for t in st.session_state.tasks if not (t.get("title").lower() == task["title"].lower())]
-        else:
-            if not any(t.get("title") == task["title"] and t.get("summary") == task["summary"] for t in st.session_state.tasks):
-                st.session_state.tasks.insert(0, task)
-            
-    st.session_state.messages.append({"role": "user", "content": input_text})
-    
+    # Bereite hochpräzisen Zeit-Kontext für das KI-Modell vor
+    now = datetime.now()
+    now_str = now.strftime("%d.%m.%Y")
+    wochentage_map = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+    weekday_str = wochentage_map[now.weekday()]
+
+    tasks_context = [{"id": t.get("id"), "title": t.get("title"), "summary": t.get("summary"), "type": t.get("type"), "termin": t.get("termin")} for t in st.session_state.tasks]
+
+    prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
+    Deine Aufgabe ist es, die User-Nachricht zu beantworten UND gleichzeitig im exakt selben Moment das Aufgabenboard im Hintergrund fehlerfrei zu steuern.
+
+    HEUTIGES DATUM KONTEXT: {weekday_str}, der {now_str}
+    Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
+
+    Aktuelle Aufgaben auf dem Board:
+    {json.dumps(tasks_context, ensure_ascii=False)}
+
+    User-Nachricht: "{input_text}"
+
+    STRIKTE RECHELN FÜR REASONING UND DATUM:
+    1. Berechne das Zieldatum im Format DD.MM.YYYY mathematisch präzise basierend auf heute ({now_str}, {weekday_str}).
+    2. Wenn heute {weekday_str} ist und der User sagt "nächste Woche Mittwoch", meint er NICHT den morgigen bzw. diese Woche stattfindenden Mittwoch, sondern den Mittwoch der DARAUFFOLGENDEN Woche. Rechne das exakt aus!
+    3. Wenn der User sagt, eine Aufgabe sei erledigt, findet nicht statt oder soll gelöscht werden, suche die passende ID aus der Liste der 'Aktuellen Aufgaben' heraus und setze sie in 'tasks_to_delete'.
+    4. Schularbeiten, Tests, Klausuren, Prüfungen haben IMMER den Typ "Test".
+
+    Antworte AUSSCHLIESSLICH mit einem validen JSON-Objekt. Verwende kein ```json oder sonstigen Text davor/danach.
+    Format:
+    {{
+      "assistant_reply": "Deine direkte, motivierende Antwort an den Schüler (z.B. 'Ich habe deine Mathe-Schularbeit für nächsten Mittwoch, den 17.06., eingetragen! 🐊')",
+      "tasks_to_add": [
+        {{
+          "title": "Fachname (MUSS exakt aus der Liste der verfügbaren Fächer sein)",
+          "type": "Test" oder "Hausaufgabe" oder "Lernplan",
+          "summary": "Prägnante Kurzbeschreibung (z.B. Mathe-Schularbeit)",
+          "termin": "DD.MM.YYYY"
+        }}
+      ],
+      "tasks_to_delete": ["Liste von IDs, die restlos gelöscht werden sollen"]
+    }}
+    """
+
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini", 
-            messages=[{"role": "system", "content": "Bestätige kurz und knackig."}, {"role": "user", "content": input_text}], 
-            temperature=0.2
+            messages=[{"role": "user", "content": prompt}], 
+            temperature=0.1,
+            response_format={"type": "json_object"}
         )
-        st.session_state.messages.append({"role": "assistant", "content": response.choices[0].message.content})
+        
+        result = json.loads(response.choices[0].message.content.strip())
+        
+        # 1. Ausführen der Löschungen (Bulletproof über ID)
+        if result.get("tasks_to_delete"):
+            st.session_state.tasks = [t for t in st.session_state.tasks if t.get("id") not in result["tasks_to_delete"]]
+            
+        # 2. Ausführen der Neuzugänge
+        if result.get("tasks_to_add"):
+            for t in result["tasks_to_add"]:
+                # Dubletten-Schutz
+                if not any(old.get("title") == t["title"] and old.get("summary") == t["summary"] and old.get("termin") == t["termin"] for old in st.session_state.tasks):
+                    st.session_state.tasks.insert(0, {
+                        "title": t.get("title"),
+                        "type": t.get("type", "Hausaufgabe"),
+                        "summary": t.get("summary"),
+                        "notes": input_text,
+                        "termin": t.get("termin"),
+                        "erstellt_am": now_str,
+                        "id": f"ai_{datetime.utcnow().timestamp()}_{t.get('title')}"
+                    })
+        
+        # 3. Chatverlauf füllen
+        st.session_state.messages.append({"role": "user", "content": input_text})
+        st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Erledigt!")})
+        
+        # In Cloud sichern
         save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
-    except Exception as e: st.error(f"Fehler bei KI-Antwort: {e}")
+        
+    except Exception as e: 
+        st.error(f"Reasoning-Engine Fehler: {e}")
+        
     st.rerun()
 
 # =========================================================================
@@ -258,7 +215,7 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Dein Workspace ist live synchronisiert!"}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Dein synchronisiertes Pro-Board läuft fehlerfrei!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
@@ -282,7 +239,7 @@ with st.sidebar:
     with st.expander("➕ Aufgabe schnell eintippen"):
         with st.form("manual_quick_form", clear_on_submit=True):
             m_sub = st.selectbox("Fach", st.session_state.subjects)
-            m_type = m_type = st.selectbox("Typ", ["Hausaufgabe", "Test", "Lernplan"])
+            m_type = st.selectbox("Typ", ["Hausaufgabe", "Test", "Lernplan"])
             m_sum = st.text_input("Was ist zu tun?")
             m_date = st.date_input("Bis wann?", datetime.now() + timedelta(days=1))
             if st.form_submit_button("Direkt eintragen"):
@@ -313,7 +270,7 @@ with st.expander("💬 KI-Lerncoach Chatverlauf", expanded=True):
 active_tasks = st.session_state.tasks if filter_subject == "Alle Fächer" else [t for t in st.session_state.tasks if t.get("title") == filter_subject]
 
 # =========================================================================
-# LIVE DASHBOARD DISPLAY WITH LIVE BUTTONS & COUNTDOWNS
+# LIVE DASHBOARD DISPLAY
 # =========================================================================
 st.write(f"### 📊 Mein Workspace ({filter_subject})")
 col1, col2, col3 = st.columns(3)

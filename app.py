@@ -20,122 +20,107 @@ DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "P
 
 st.set_page_config(page_title="StudyTutor Pro 🐊", layout="wide", initial_sidebar_state="expanded")
 
-# PREMIUM CUSTOM CSS (MIT AUTOMATISCHEM & EDLEM DARK-MODE)
+# PREMIUM CUSTOM CSS (AUTOMATISCHER DARK-MODE + VOLLES PLATTFORM-FEELING)
 st.html("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght=300;400;500;600;700&display=swap');
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght=300;400;500;600;700&family=Orbitron:wght=500;700&display=swap');
     
     /* STANDARD HELLER MODUS */
     .stApp { background-color: #fafafa; color: #1e293b; font-family: 'Inter', sans-serif; }
     [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #f1f5f9; padding-top: 2rem; }
     
-    .task-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 12px;
-        padding: 16px;
-        margin-bottom: 4px;
-        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-        border-left: 5px solid #ef4444;
+    /* EDEL-KALENDER DESIGN */
+    .calendar-container { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); margin-bottom: 24px; }
+    .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 10px; margin-top: 15px; }
+    .calendar-day-header { text-align: center; font-weight: 600; color: #64748b; font-size: 0.85rem; text-transform: uppercase; padding-bottom: 5px; }
+    .calendar-cell { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; min-height: 95px; padding: 8px; display: flex; flex-direction: column; justify-content: space-between; }
+    .calendar-cell.today { background: #eff6ff; border: 2px solid #3b82f6; }
+    .calendar-date-num { font-weight: 700; font-size: 0.9rem; color: #475569; }
+    .calendar-cell.today .calendar-date-num { color: #1d4ed8; }
+    .calendar-dots { display: flex; flex-direction: column; gap: 4px; margin-top: 4px; overflow-y: auto; max-height: 60px; }
+    .calendar-dot { font-size: 0.7rem; font-weight: 600; padding: 2px 6px; border-radius: 4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: white; }
+    
+    /* GAMING LERNZENTRUM STYLES */
+    .gaming-container { 
+        background: linear-gradient(145deg, #0b0f19, #111827); 
+        color: #f8fafc; padding: 35px; border-radius: 24px; 
+        box-shadow: 0 25px 50px -12px rgba(0,0,0,0.5); border: 2px solid #4f46e5; margin-top: 10px;
     }
+    .gaming-title { font-family: 'Orbitron', sans-serif; font-weight: 700; color: #6366f1; text-shadow: 0 0 10px rgba(99, 102, 241, 0.5); }
+    .quest-card { background: rgba(31, 41, 55, 0.6); border: 1px solid #3b82f6; border-radius: 14px; padding: 18px; margin-bottom: 14px; border-left: 6px solid #3b82f6; }
+    .quest-card.locked { border-color: #4b5563; border-left-color: #9ca3af; opacity: 0.4; background: rgba(17, 24, 39, 0.8); }
+    .quest-card.active-quest { border-color: #a855f7; border-left-color: #a855f7; background: rgba(49, 46, 129, 0.4); box-shadow: 0 0 20px rgba(168, 85, 247, 0.25); }
+    .kuckucksei-box { background: rgba(239, 68, 68, 0.1); border: 2px dashed #ef4444; border-radius: 14px; padding: 18px; margin-bottom: 16px; color: #fca5a5; }
+
+    /* BOARDS & CARDS */
+    .task-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 4px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05); border-left: 5px solid #ef4444; }
     .card-title { font-weight: 600; font-size: 1.1rem; color: #0f172a; margin-bottom: 4px; }
     .card-summary { font-size: 0.95rem; color: #1e293b; font-weight: 500; margin-bottom: 6px; }
     .card-info-line { font-size: 0.85rem; color: #e11d48; font-weight: 700; background: #ffe4e6; padding: 4px 8px; border-radius: 6px; display: inline-block; margin-bottom: 4px; }
     .column-header { font-size: 1.1rem; font-weight: 600; color: #334155; padding-bottom: 8px; margin-bottom: 16px; border-bottom: 2px solid #e2e8f0; }
-    .countdown-badge { font-size: 0.8rem; font-weight: 600; color: #dc2626; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
     
-    .focus-box {
-        background: linear-gradient(135deg, #1e1b4b 0%, #311042 100%);
-        color: #ffffff;
-        border-radius: 16px;
-        padding: 24px;
-        margin-bottom: 24px;
-        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
-        border-left: 6px solid #a855f7;
+    /* KARTEIKARTEN ENGINE STYLES */
+    .flashcard-box { 
+        background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; 
+        border-radius: 20px; padding: 40px; text-align: center; min-height: 200px; 
+        display: flex; flex-direction: column; justify-content: center; align-items: center;
+        box-shadow: 0 10px 25px rgba(29, 78, 216, 0.3); font-size: 1.4rem; font-weight: 600; margin-bottom: 20px;
     }
-    
-    .stat-card {
-        background: #ffffff;
-        border: 1px solid #e2e8f0;
-        border-radius: 10px;
-        padding: 12px 16px;
-        text-align: center;
-        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
-    }
+    .flashcard-box.flipped { background: linear-gradient(135deg, #10b981 0%, #047857 100%); box-shadow: 0 10px 25px rgba(4, 120, 87, 0.3); }
+
+    .stat-card { background: #ffffff; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px 16px; text-align: center; box-shadow: 0 2px 4px rgba(0,0,0,0.02); }
     .stat-val { font-size: 1.5rem; font-weight: 700; color: #0f172a; }
     .stat-lbl { font-size: 0.8rem; color: #64748b; font-weight: 500; }
     
-    .grade-badge {
-        background: #f1f5f9;
-        padding: 6px 12px;
-        border-radius: 8px;
-        font-weight: 600;
-        display: inline-block;
-        margin: 4px;
-        border: 1px solid #cbd5e1;
-        color: #1e293b;
-    }
+    .grade-badge { background: #f1f5f9; padding: 6px 12px; border-radius: 8px; font-weight: 600; display: inline-block; margin: 4px; border: 1px solid #cbd5e1; color: #1e293b; }
 
-    /* AUTOMATISCHER, EDLER DUNKLER MODUS (Aktiviert sich von selbst, wenn das System dunkel ist) */
+    /* AUTOMATISCHER DUNKLER MODUS */
     @media (prefers-color-scheme: dark) {
         .stApp { background-color: #0f172a !important; color: #f8fafc !important; }
         [data-testid="stSidebar"] { background-color: #1e293b !important; border-right: 1px solid #334155 !important; }
         
-        .task-card {
-            background: #1e293b !important;
-            border: 1px solid #334155 !important;
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3) !important;
-            border-left: 5px solid #ef4444 !important;
-        }
+        .calendar-container { background: #1e293b; border-color: #334155; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.3); }
+        .calendar-cell { background: #0f172a; border-color: #334155; }
+        .calendar-cell.today { background: #1e3a8a; border-color: #3b82f6; }
+        .calendar-date-num { color: #94a3b8; }
+        .calendar-cell.today .calendar-date-num { color: #60a5fa; }
+        
+        .task-card { background: #1e293b !important; border: 1px solid #334155 !important; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3) !important; }
         .card-title { color: #f8fafc !important; }
         .card-summary { color: #cbd5e1 !important; }
         .card-info-line { background: #881337 !important; color: #fda4af !important; }
         .column-header { color: #94a3b8 !important; border-bottom: 2px solid #334155 !important; }
-        .countdown-badge { color: #fca5a5 !important; }
         
-        .stat-card {
-            background: #1e293b !important;
-            border: 1px solid #334155 !important;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
-        }
+        .stat-card { background: #1e293b !important; border: 1px solid #334155 !important; box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important; }
         .stat-val { color: #f8fafc !important; }
         .stat-lbl { color: #94a3b8 !important; }
         
-        .grade-badge {
-            background: #1e293b !important;
-            border: 1px solid #475569 !important;
-            color: #f8fafc !important;
-        }
+        .grade-badge { background: #1e293b !important; border: 1px solid #475569 !important; color: #f8fafc !important; }
         
-        /* Sorgt dafür, dass Standard-Streamlit-Texte im Dark Mode weiß sind */
-        p, h1, h2, h3, h4, h5, h6, span, label { color: #f8fafc !important; }
+        .stApp p, .stApp h1, .stApp h2, .stApp h3, .stApp h4, .stApp h5, .stApp h6, .stApp span, .stApp label { color: #f8fafc !important; }
+        .gaming-container p, .gaming-container h1, .gaming-container h2, .gaming-container h3, .gaming-container h4, .gaming-container h5, .gaming-container h6, .gaming-container span { color: #f8fafc !important; }
     }
 </style>
 """)
 
 # =========================================================================
-# JAVASCRIPT MITTEILUNGS-SYSTEM (PUSH NOTIFICATIONS)
+# BROWSER PUSH MITTEILUNGEN
 # =========================================================================
 st.html("""
 <script>
     if (Notification.permission !== "granted" && Notification.permission !== "denied") {
         Notification.requestPermission();
     }
-
     window.sendKrokoNotification = function(title, body) {
         if (Notification.permission === "granted") {
-            new Notification(title, {
-                body: body,
-                icon: "https://emojicdn.elk.sh/🐊"
-            });
+            new Notification(title, { body: body, icon: "https://emojicdn.elk.sh/🐊" });
         }
     };
 </script>
 """)
 
 def trigger_browser_notification(title, text):
-    js_code = f"<script>window.sendKrokoNotification({json.dumps(title)}, {json.dumps(text)});</script>"
-    st.html(js_code)
+    st.html(f"<script>window.sendKrokoNotification({json.dumps(title)}, {json.dumps(text)});</script>")
 
 # =========================================================================
 # GLOBAL PROFIL MANAGEMENT & KONTEN-ABRUF
@@ -147,18 +132,17 @@ def get_all_registered_profiles():
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             profiles = [row["id"] for row in response.json() if row.get("id")]
-            if "Alex" not in profiles:
-                profiles.insert(0, "Alex")
+            if "Alex" not in profiles: profiles.insert(0, "Alex")
             return sorted(list(set(profiles)))
     except Exception: pass
     return ["Alex"]
 
 if "available_profiles" not in st.session_state:
     st.session_state.available_profiles = get_all_registered_profiles()
-
 if "user_id" not in st.session_state:
     st.session_state.user_id = st.session_state.available_profiles[0]
 
+# GLOBAL STATE INITIALISIERUNGEN
 if "xp" not in st.session_state: st.session_state.xp = 0
 if "streak" not in st.session_state: st.session_state.streak = 0
 if "flashcards" not in st.session_state: st.session_state.flashcards = []
@@ -166,9 +150,12 @@ if "card_flipped" not in st.session_state: st.session_state.card_flipped = False
 if "card_ki_response" not in st.session_state: st.session_state.card_ki_response = ""
 if "card_idx" not in st.session_state: st.session_state.card_idx = 0
 if "notified_task_ids" not in st.session_state: st.session_state.notified_task_ids = []
+if "gaming_quests" not in st.session_state: st.session_state.gaming_quests = []
+if "kuckuckseier" not in st.session_state: st.session_state.kuckuckseier = []
+if "handwriting_analysis" not in st.session_state: st.session_state.handwriting_analysis = ""
 
 # =========================================================================
-# UTILITIES & IMAGE ENCODING
+# UTILITIES
 # =========================================================================
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode('utf-8')
@@ -184,48 +171,18 @@ def get_days_left(termin_str):
         except ValueError: pass
     return None
 
-def get_days_left_string(termin_str):
-    delta = get_days_left(termin_str)
-    if delta is None: return ""
-    if delta == 0: return "🚨 HEUTE!"
-    elif delta == 1: return "⏳ Morgen!"
-    elif delta < 0: return f"⚠️ Überfällig ({abs(delta)} Tage)"
-    else: return f"⏳ Noch {delta} Tage"
-
-def is_within_next_fortnight(termin_str):
-    delta = get_days_left(termin_str)
-    if delta is None: return False
-    return 0 <= delta <= 14
-
-# =========================================================================
-# MITTEILUNGS-PLANER (CHECKER)
-# =========================================================================
 def check_and_send_deadline_notifications():
-    if "tasks" not in st.session_state or not st.session_state.tasks:
-        return
-        
+    if "tasks" not in st.session_state or not st.session_state.tasks: return
     for t in st.session_state.tasks:
         t_id = t.get("id")
         if t_id and t_id not in st.session_state.notified_task_ids:
             days_left = get_days_left(t.get("termin"))
-            
             if days_left is not None and 0 <= days_left <= 2:
                 fach = t.get("title", "Aufgabe")
                 thema = t.get("summary", "")
                 typ = t.get("type", "Aufgabe")
-                name = st.session_state.user_id
-                
-                if days_left == 0:
-                    zeit_text = "ist HEUTE fällig!"
-                elif days_left == 1:
-                    zeit_text = "ist morgen fällig!"
-                else:
-                    zeit_text = f"ist in nur noch {days_left} Tagen!"
-                
-                title_msg = f"🐊 StudyTutor Pro Mitteilung"
-                body_msg = f"{name}, nur noch so viel Zeit: Dein(e) {typ} in {fach} ({thema}) {zeit_text} ⏳"
-                
-                trigger_browser_notification(title_msg, body_msg)
+                zeit_text = "ist HEUTE fällig!" if days_left == 0 else ("ist morgen fällig!" if days_left == 1 else f"ist in nur noch {days_left} Tagen!")
+                trigger_browser_notification("🐊 StudyTutor Pro Mitteilung", f"{st.session_state.user_id}, dein(e) {typ} in {fach} ({thema}) {zeit_text} ⏳")
                 st.session_state.notified_task_ids.append(t_id)
 
 # =========================================================================
@@ -244,12 +201,7 @@ def load_from_supabase():
 
 def save_to_supabase(state_data):
     if not state_data or "tasks" not in state_data: return
-    headers = {
-        "apikey": SUPABASE_ANON_KEY, 
-        "Authorization": f"Bearer {SUPABASE_ANON_KEY}", 
-        "Content-Type": "application/json", 
-        "Prefer": "on-conflict=id"
-    }
+    headers = {"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}", "Content-Type": "application/json", "Prefer": "on-conflict=id"}
     url = f"{SUPABASE_URL}/rest/v1/studytutor_data"
     payload = {"id": st.session_state.user_id, "app_state": state_data, "updated_at": datetime.utcnow().isoformat()}
     try: 
@@ -259,8 +211,16 @@ def save_to_supabase(state_data):
             requests.patch(patch_url, headers=headers, json={"app_state": state_data, "updated_at": datetime.utcnow().isoformat()})
     except Exception: pass
 
+def save_all_to_db():
+    save_to_supabase({
+        "tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects,
+        "completed_count": st.session_state.get("completed_count", 0), "grades": st.session_state.grades, "xp": st.session_state.xp,
+        "streak": st.session_state.streak, "flashcards": st.session_state.flashcards, "gaming_quests": st.session_state.gaming_quests,
+        "kuckuckseier": st.session_state.kuckuckseier, "handwriting_analysis": st.session_state.handwriting_analysis
+    })
+
 # =========================================================================
-# MULTI-MODAL REASONING ENGINE (TEXT, AUDIO & VISION)
+# LERNENGINE CORE PROZESSE
 # =========================================================================
 def transcribe_audio(audio_file):
     try:
@@ -272,117 +232,45 @@ def transcribe_audio(audio_file):
 
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
-
     with st.spinner("Überlege... 🐊"):
-        now = datetime.now()
-        now_str = now.strftime("%d.%m.%Y")
-        wochentage_map = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
-        weekday_str = wochentage_map[now.weekday()]
-
-        tasks_context = [{"id": t.get("id"), "title": t.get("title"), "summary": t.get("summary"), "type": t.get("type"), "termin": t.get("termin")} for t in st.session_state.tasks]
-        grades_context = st.session_state.grades
-
+        now_str = datetime.now().strftime("%d.%m.%Y")
         prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
-        Deine Aufgabe ist es, Schüler strategisch zu beraten, Noten zu tracken, hochgeladenen Stoff zu analysieren UND das Dashboard fehlerfrei zu steuern.
-
-        STRIKTE ZEIT-BASIS (RECHNE EXAKT!):
-        Heute ist {weekday_str}, der {now_str}.
-        Wenn der User relative Angaben macht (z.B. "nächsten Dienstag", "in 3 Tagen", "morgen", "am Freitag"), berechne das ZIEL-DATUM ausgehend vom {now_str} mathematisch absolut präzise! Verrechne dich NIEMALS um Tage!
-
+        Heute ist der {now_str}.
         Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
-        Bisherige Noten des Schülers: {json.dumps(grades_context, ensure_ascii=False)}
-        Aktuelle Aufgaben auf dem Board: {json.dumps(tasks_context, ensure_ascii=False)}
+        Aktuelle Aufgaben auf dem Board: {json.dumps(st.session_state.tasks, ensure_ascii=False)}
 
         User-Nachricht: "{input_text}"
-
-        STRIKTE REGELN FÜR DIE STRUKTUR:
-        1. Wenn der User einen neuen TEST oder eine HAUSAUFGABE meldet, erstelle AUSSCHLIESSLICH diesen EINEN Eintrag mit Typ 'Test' oder 'Hausaufgabe'.
-        2. Generiere NIEMALS automatisch ungefragt einen mehrtägigen Lernplan (keine Einträge mit Typ 'Lernplan' oder "Tag 1, Tag 2"-Stufen erzeugen), AUSSER der User verlangt explizit in seiner Nachricht einen Lernplan (z.B. "Erstelle mir einen Lernplan für...").
-        3. Der 'summary'-Wert eines Tests/einer Hausaufgabe darf NIEMALS Bezeichnungen wie "Tag X" enthalten! Er muss sauber das Thema oder die Arbeit benennen (z.B. "Deutsch-Test" oder "Schularbeit zu Thema X").
-        4. Wenn der User explizit nach Karteikarten (Flashcards) fragt (z.B. "Erstelle Karteikarten zu Thema X"), befüllst du das optionale Array 'flashcards_to_add'.
-           WICHTIG FÜR DIE ANTWORTEN DER KARTEIKARTEN: Die Antworten MÜSSEN extrem einfach, super kurz (maximal 1-2 Sätze) und in einfacher Schülersprache geschrieben sein. Vermeide komplizierte Schachtelsätze oder unnötige Fachwörter! Es muss sich an den hochgeladenen Schularbeitsstoff anpassen: Einfacher Stoff für Erstklässler wird super simpel erklärt, komplexerer Stoff für höhere Stufen wird ebenfalls logisch, anschaulich und verständlich wie von einem guten Lehrer erklärt, ohne zu komplex zu sein.
 
         Antworte AUSSCHLIESSLICH im validen JSON-Format:
         {{
           "assistant_reply": "Deine persönliche, motivierende Antwort an den Schüler.",
           "tasks_to_add": [
-            {{
-              "title": "Fachname (MUSS exakt aus der Liste sein)",
-              "type": "Test" oder "Hausaufgabe" oder "Lernplan",
-              "summary": "Sauberer Titel (NUR falls explizit gewünscht mit 'Tag X:' beginnen!)",
-              "prioritaet": "🚨 Hoch" oder "🟡 Mittel" oder "🟢 Niedrig",
-              "termin": "DD.MM.YYYY"
-            }}
+            {{ "title": "Fachname", "type": "Test" oder "Hausaufgabe", "summary": "Thema", "prioritaet": "🚨 Hoch" oder "🟡 Mittel", "termin": "DD.MM.YYYY" }}
           ],
           "tasks_to_delete": [],
-          "grade_to_add": {{ "subject": "Fachname", "grade": 4, "note_label": "Schularbeit" }},
-          "flashcards_to_add": [
-            {{ "question": "Frage / Begriff", "answer": "Antwort / Erklärung" }}
-          ]
-        }}
-        """
-
+          "grade_to_add": null,
+          "flashcards_to_add": []
+        }}"""
         content_payload = [{"type": "text", "text": prompt}]
-        
         if uploaded_image:
-            base64_image = encode_image(uploaded_image)
-            content_payload.append({
-                "type": "image_url",
-                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
-            })
-
+            content_payload.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encode_image(uploaded_image)}"} })
         try:
-            response = client.chat.completions.create(
-                model="gpt-4o-mini", 
-                messages=[{"role": "user", "content": content_payload}], 
-                temperature=0.1,
-                response_format={"type": "json_object"}
-            )
+            response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": content_payload}], response_format={"type": "json_object"}, temperature=0.1)
             result = json.loads(response.choices[0].message.content.strip())
-            
-            if result.get("grade_to_add"):
-                g = result["grade_to_add"]
-                st.session_state.grades.append({
-                    "subject": g.get("subject"), "grade": g.get("grade"),
-                    "label": g.get("note_label", "Klausur"), "date": now_str
-                })
-
-            if result.get("tasks_to_delete"):
-                st.session_state.tasks = [t for t in st.session_state.tasks if t.get("id") not in result["tasks_to_delete"]]
-                
             if result.get("tasks_to_add"):
                 for i, t in enumerate(result["tasks_to_add"]):
-                    if not any(old.get("title") == t.get("title") and old.get("summary") == t.get("summary") and old.get("termin") == t.get("termin") for old in st.session_state.tasks):
-                        st.session_state.tasks.insert(0, {
-                            "title": t.get("title"), "type": t.get("type", "Lernplan"), "summary": t.get("summary"),
-                            "prioritaet": t.get("prioritaet", "🟡 Mittel"),
-                            "notes": "Automatisch generierter KI-Lernschritt." if t.get("type") == "Lernplan" else input_text,
-                            "termin": t.get("termin"), "erstellt_am": now_str, "id": f"ai_{datetime.utcnow().timestamp()}_{i}_{t.get('title')}"
-                        })
-
-            if result.get("flashcards_to_add"):
-                for fc in result["flashcards_to_add"]:
-                    st.session_state.flashcards.append({
-                        "question": fc.get("question"), "answer": fc.get("answer")
+                    st.session_state.tasks.insert(0, {
+                        "title": t.get("title"), "type": t.get("type", "Hausaufgabe"), "summary": t.get("summary"), "prioritaet": t.get("prioritaet", "🟡 Mittel"),
+                        "termin": t.get("termin"), "id": f"ai_{datetime.utcnow().timestamp()}_{i}"
                     })
-            
-            display_text = input_text if input_text and input_text.strip() != "" else "📸 [Bild hochgeladen]"
-            st.session_state.messages.append({"role": "user", "content": display_text})
-            st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Daten aktualisiert! 🐊")})
-            
-            save_to_supabase({
-                "tasks": st.session_state.tasks, "messages": st.session_state.messages, 
-                "subjects": st.session_state.subjects, "completed_count": st.session_state.get("completed_count", 0),
-                "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak,
-                "flashcards": st.session_state.flashcards
-            })
-        except Exception as e: 
-            st.error(f"Schnittstellen Fehler: {e}")
-            
+            st.session_state.messages.append({"role": "user", "content": input_text if input_text else "📸 [Bild hochgeladen]"})
+            st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Erledigt! 🐊")})
+            save_all_to_db()
+        except Exception as e: st.error(f"Fehler: {e}")
     st.rerun()
 
 # =========================================================================
-# ACCOUNT-SPEZIFISCHE LIVE-INITIALISIERUNG
+# RE-INITIALISIERUNG BEI NUTZERWECHSEL
 # =========================================================================
 if "initialized_user" not in st.session_state or st.session_state.initialized_user != st.session_state.user_id:
     db_state = load_from_supabase()
@@ -395,349 +283,324 @@ if "initialized_user" not in st.session_state or st.session_state.initialized_us
         st.session_state.xp = db_state.get("xp", 0)
         st.session_state.streak = db_state.get("streak", 0)
         st.session_state.flashcards = db_state.get("flashcards", [])
+        st.session_state.gaming_quests = db_state.get("gaming_quests", [])
+        st.session_state.kuckuckseier = db_state.get("kuckuckseier", [])
+        st.session_state.handwriting_analysis = db_state.get("handwriting_analysis", "")
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": f"Hi {st.session_state.user_id}! 🐊 Ich bin dein intelligenter Mentor. Schick mir deine Noten, sprich mit mir oder fotografiere deinen Lernstoff!"}]
+        st.session_state.messages = [{"role": "assistant", "content": f"Hi {st.session_state.user_id}! 🐊 Lass uns loslegen!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
         st.session_state.completed_count = 0
         st.session_state.grades = []
         st.session_state.xp = 0
         st.session_state.streak = 0
         st.session_state.flashcards = []
-    st.session_state.card_flipped = False
-    st.session_state.card_ki_response = ""
-    st.session_state.card_idx = 0
-    st.session_state.notified_task_ids = []
+        st.session_state.gaming_quests = []
+        st.session_state.kuckuckseier = []
+        st.session_state.handwriting_analysis = ""
     st.session_state.initialized_user = st.session_state.user_id
 
 check_and_send_deadline_notifications()
 
 # =========================================================================
-# SIDEBAR CONTROL CENTER
+# NAVIGATION CONTROL PANEL (SIDEBAR)
 # =========================================================================
 with st.sidebar:
     st.title("StudyTutor Pro 🐊")
     st.write("---")
     
+    if "app_mode" not in st.session_state: st.session_state.app_mode = "Dashboard"
+    
+    st.subheader("🕹️ Navigation Portal")
+    if st.button("📊 Dashboard & Board", use_container_width=True, type="primary" if st.session_state.app_mode == "Dashboard" else "secondary"):
+        st.session_state.app_mode = "Dashboard"; st.rerun()
+    if st.button("🃏 Karteikarten-Trainer", use_container_width=True, type="primary" if st.session_state.app_mode == "Karteikarten" else "secondary"):
+        st.session_state.app_mode = "Karteikarten"; st.rerun()
+    if st.button("📝 Notenspiegel", use_container_width=True, type="primary" if st.session_state.app_mode == "Notenspiegel" else "secondary"):
+        st.session_state.app_mode = "Notenspiegel"; st.rerun()
+    if st.button("🎯 Kroko-Lernzentrum", use_container_width=True, type="primary" if st.session_state.app_mode == "Lernzentrum" else "secondary"):
+        st.session_state.app_mode = "Lernzentrum"; st.rerun()
+        
+    st.write("---")
     st.subheader("🐊 Deine Kroko-Stats")
     level = (st.session_state.xp // 100) + 1
-    xp_in_level = st.session_state.xp % 100
-    st.write(f"**Level {level}** ({xp_in_level}/100 XP)")
-    st.progress(xp_in_level / 100)
-    st.write(f"🔥 **Lern-Streak:** {st.session_state.streak} Tage am Stück")
+    st.write(f"**Level {level}** ({(st.session_state.xp % 100)}/100 XP)")
+    st.progress((st.session_state.xp % 100) / 100)
+    st.write(f"🔥 **Lern-Streak:** {st.session_state.streak} Tage")
     st.write("---")
     
-    st.subheader("👥 Profil auswählen")
-    try:
-        current_index = st.session_state.available_profiles.index(st.session_state.user_id)
-    except ValueError:
-        current_index = 0
-        
-    selected_user = st.selectbox("Wer lernt gerade?", options=st.session_state.available_profiles, index=current_index)
+    selected_user = st.selectbox("Profil wechseln:", options=st.session_state.available_profiles)
     if selected_user != st.session_state.user_id:
-        st.session_state.user_id = selected_user
-        st.rerun()
-        
-    with st.expander("➕ Neues Profil anlegen"):
-        new_profile_name = st.text_input("Name eingeben:", key="new_profile_input_field")
-        if st.button("Konto erstellen", use_container_width=True):
-            clean_name = new_profile_name.strip()
-            if clean_name != "" and clean_name not in st.session_state.available_profiles:
-                st.session_state.available_profiles.append(clean_name)
-                st.session_state.available_profiles = sorted(st.session_state.available_profiles)
-                st.session_state.user_id = clean_name
-                st.success(f"Profil für {clean_name} erstellt!")
-                st.rerun()
-                
-    st.write("---")
-    st.subheader("🎯 Fokus-Modus")
-    if st.session_state.tasks:
-        task_options = {f"{t['title']}: {t['summary']}": t['id'] for t in st.session_state.tasks}
-        selected_focus_label = st.selectbox("Wähle deine Hauptaufgabe:", ["Kein Fokus"] + list(task_options.keys()))
-        selected_focus_id = task_options[selected_focus_label] if selected_focus_label != "Kein Fokus" else None
-    else:
-        selected_focus_id = None
-        st.caption("Keine Aufgaben.")
-        
-    st.write("---")
-    st.subheader("🔍 Filter")
-    filter_subject = st.selectbox("Fach auswählen:", ["Alle Fächer"] + st.session_state.subjects)
-    st.write("---")
-
-    st.subheader("📸 Lernstoff einsenden")
-    uploaded_img = st.file_uploader("Bild/Angabe hochladen:", type=["jpg", "jpeg", "png"], key="main_image_uploader")
-    st.write("---")
-
-    if st.button("🗑️ Reset", use_container_width=True):
-        st.session_state.tasks = []
-        st.session_state.completed_count = 0
-        st.session_state.grades = []
-        st.session_state.xp = 0
-        st.session_state.streak = 0
-        st.session_state.flashcards = []
-        st.session_state.card_flipped = False
-        st.session_state.card_ki_response = ""
-        st.session_state.card_idx = 0
-        st.session_state.notified_task_ids = []
-        st.session_state.messages = [{"role": "assistant", "content": "Zurückgesetzt."}]
-        save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": 0, "grades": [], "xp": 0, "streak": 0, "flashcards": []})
-        st.rerun()
+        st.session_state.user_id = selected_user; st.rerun()
 
 # =========================================================================
-# MAIN CHAT
+# MODUS 1: DASHBOARD & WORKSPACE BOARD
 # =========================================================================
-with st.expander(f"💬 KI-Lerncoach & Mentor (Konto: {st.session_state.user_id})", expanded=True):
-    for msg in st.session_state.messages[-3:]:
-        with st.chat_message(msg["role"]): st.write(msg["content"])
+if st.session_state.app_mode == "Dashboard":
+    st.title("Dein Alltags-Cockpit 📊")
     
-    st.write("---")
-    
-    with st.form("unified_chat_form", clear_on_submit=True):
-        f_col1, f_col2, f_col3 = st.columns([4, 3, 1], vertical_alignment="center")
-        with f_col1:
-            chat_text = st.text_input("Schreib mir...", label_visibility="collapsed", placeholder="Frag das Krokodil...", key="main_text_input")
-        with f_col2:
-            main_audio = st.audio_input("Mikrofon", label_visibility="collapsed", key="main_audio_widget")
-        with f_col3:
-            submit_main = st.form_submit_button("🚀", use_container_width=True)
+    # 📅 EDEL-KALENDER
+    st.markdown("### 📅 Dein smarter Terminkalender")
+    with st.container(border=False):
+        st.html("<div class='calendar-container'>")
+        cols = st.columns(7)
+        days_letters = ["MO", "DI", "MI", "DO", "FR", "SA", "SO"]
+        for i, d in enumerate(days_letters): cols[i].html(f"<div class='calendar-day-header'>{d}</div>")
+            
+        today = datetime.now().date()
+        start_of_week = today - timedelta(days=today.weekday())
         
-        if submit_main:
-            final_text = chat_text.strip() if chat_text else ""
+        grid_cols = st.columns(7)
+        for i in range(7):
+            current_day = start_of_week + timedelta(days=i)
+            day_str = current_day.strftime("%d.%m.%Y")
+            is_today = "today" if current_day == today else ""
             
-            if main_audio is not None:
-                audio_text = transcribe_audio(main_audio)
-                if audio_text:
-                    final_text = f"{final_text} {audio_text}".strip()
-            
-            if final_text != "" or uploaded_img:
-                process_user_input(final_text, uploaded_img)
+            dots_html = ""
+            for t in st.session_state.tasks:
+                if t.get("termin") == day_str:
+                    color = "#ef4444" if t.get("type") == "Test" else "#f59e0b"
+                    dots_html += f"<div class='calendar-dot' style='background:{color};'>{t['title']}: {t['summary']}</div>"
+                    
+            grid_cols[i].html(f"""
+            <div class='calendar-cell {is_today}'>
+                <div class='calendar-date-num'>{current_day.day}</div>
+                <div class='calendar-dots'>{dots_html}</div>
+            </div>
+            """)
+        st.html("</div>")
 
-# =========================================================================
-# LIVE DASHBOARD STATS
-# =========================================================================
-stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
-with stat_col1:
-    st.html(f"<div class='stat-card'><div class='stat-val' style='color:#ef4444;'>{len([t for t in st.session_state.tasks if t.get('type')=='Test'])}</div><div class='stat-lbl'>OFFENE TESTS</div></div>")
-with stat_col2:
-    st.html(f"<div class='stat-card'><div class='stat-val' style='color:#f59e0b;'>{len([t for t in st.session_state.tasks if t.get('type')=='Hausaufgabe'])}</div><div class='stat-lbl'>HAUSAUFGABEN</div></div>")
-with stat_col3:
-    st.html(f"<div class='stat-card'><div class='stat-val' style='color:#10b981;'>{len([t for t in st.session_state.tasks if t.get('type')=='Lernplan'])}</div><div class='stat-lbl'>LERNPLAN SCHRITTE</div></div>")
-with stat_col4:
-    st.html(f"<div class='stat-card'><div class='stat-val' style='color:#3b82f6;'>{st.session_state.completed_count} ✅</div><div class='stat-lbl'>ERLEDIGT</div></div>")
+    # COACH CHAT
+    with st.expander(f"💬 KI-Lerncoach & Mentor", expanded=False):
+        for msg in st.session_state.messages[-3:]:
+            with st.chat_message(msg["role"]): st.write(msg["content"])
+        with st.form("quick_chat_form", clear_on_submit=True):
+            f_col1, f_col2, f_col3 = st.columns([4, 3, 1], vertical_alignment="center")
+            with f_col1: c_text = st.text_input("Frag Kroko...", key="chat_in", label_visibility="collapsed")
+            with f_col2: c_audio = st.audio_input("Sprechen", key="chat_aud", label_visibility="collapsed")
+            with f_col3: submit = st.form_submit_button("🚀", use_container_width=True)
+            if submit:
+                final_text = c_text.strip() if c_text else ""
+                if c_audio:
+                    a_txt = transcribe_audio(c_audio)
+                    if a_txt: final_text = f"{final_text} {a_txt}".strip()
+                if final_text: process_user_input(final_text)
 
-# AUTOMATISCHER SCHWACHSTELLEN-WARNER
-critical_subjects = []
-for g in st.session_state.grades:
-    if g.get('grade', 0) >= 4:
-        sub = g.get('subject')
-        has_active_task = any(t.get('title') == sub for t in st.session_state.tasks)
-        if not has_active_task and sub not in critical_subjects:
-            critical_subjects.append(sub)
-if critical_subjects:
-    for cs in critical_subjects:
-        st.warning(f"⚠️ **Kroko-Warnung:** Deine Note in **{cs}** steht kritisch, aber du hast aktuell keine Lernschritte auf deinem Board! Frage den Coach nach einem Lernplan.")
-
-# NOTENSPIEGEL & EXPANDER FÜR DEN ZIELRECHNER
-if st.session_state.grades:
-    st.write(f"### 📝 Aktueller Notenspiegel von {st.session_state.user_id}")
-    
-    with st.popover("📊 Erweiterte Noten-Analyse & Zielrechner öffnen", use_container_width=True):
-        st.markdown("### 📊 Alle Schularbeitsnoten im Überblick")
-        sub_grades = {}
-        for g in st.session_state.grades:
-            sub_grades.setdefault(g['subject'], []).append(g['grade'])
-            
-        st.markdown("#### 📈 Aktuelle Fach-Durchschnitte:")
-        for sub, g_list in sub_grades.items():
-            avg = sum(g_list) / len(g_list)
-            st.write(f"- **{sub}**: Schnitt {avg:.2f} (Basis: {len(g_list)} Noten)")
-            
-        st.write("---")
-        st.markdown("#### 🎯 Wunschnoten-Rechner")
-        calc_sub = st.selectbox("Wähle ein Fach zum Berechnen:", options=list(sub_grades.keys()))
-        target_grade = st.slider("Dein Wunsch-Schnitt für dieses Fach:", 1.0, 5.0, 2.0, 0.1)
-        if calc_sub:
-            c_sum = sum(sub_grades[calc_sub])
-            c_count = len(sub_grades[calc_sub])
-            needed = target_grade * (c_count + 1) - c_sum
-            st.write(f"Um in **{calc_sub}** auf einen Schnitt von **{target_grade:.1f}** zu kommen, benötigst du in der nächsten Arbeit eine:")
-            if needed < 1.0: st.success("Mathematisch bereits abgesichert oder besser als eine 1! 🎉")
-            elif needed > 5.0: st.error(f"Nicht mit einer einzigen Arbeit schaffbar (Benötigt: {needed:.1f}). Mach mehr Teilschritte!")
-            else: st.info(f"👉 **Note {needed:.1f}** oder besser.")
-
-    grade_html = ""
-    for g in st.session_state.grades:
-        color = "#10b981" if g['grade'] <= 2 else ("#f59e0b" if g['grade'] == 3 else "#ef4444")
-        grade_html += f"<div class='grade-badge' style='border-left: 4px solid {color};'><b>{g['subject']}</b>: Note {g['grade']} <span style='font-size:0.75rem; color:#64748b;'>({g['label']})</span></div>"
-    st.html(f"<div>{grade_html}</div>")
-
-# REINZOOM-FOKUS & POMODORO TIMER
-if selected_focus_id:
-    focus_task = next((t for t in st.session_state.tasks if t['id'] == selected_focus_id), None)
-    if focus_task:
-        st.html(f"<div class='focus-box'><div style='font-size: 0.85rem; font-weight: 700; color: #c084fc; margin-bottom: 4px;'>🎯 AKTUELLER REINZOOM-FOKUS</div><div style='font-size: 1.6rem; font-weight: 700; margin-bottom: 4px;'>{focus_task['title']} — {focus_task['summary']}</div><div>Fällig am: {focus_task.get('termin')} | Prio: {focus_task.get('prioritaet')}</div></div>")
-        
-        p_col1, p_col2 = st.columns([1, 2])
-        with p_col1:
-            st.write("⏱️ **Live Pomodoro**")
-            pomo_mins = st.number_input("Fokus-Dauer (Min):", 1, 60, 25)
-            if st.button("🚀 Timer starten", use_container_width=True):
-                progress_bar = st.progress(0.0)
-                status_text = st.empty()
-                total_s = pomo_mins * 60
-                for s in range(total_s, -1, -1):
-                    m, sec = divmod(s, 60)
-                    status_text.write(f"⏳ **Fokuszeit läuft:** {m:02d}:{sec:02d}")
-                    progress_bar.progress((total_s - s) / total_s)
-                    time.sleep(1)
-                status_text.write("🎉 **Sitzung beendet! Zeit für eine Pause!** 🐊")
-                st.balloons()
-
-active_tasks = st.session_state.tasks if filter_subject == "Alle Fächer" else [t for t in st.session_state.tasks if t.get("title") == filter_subject]
-
-# =========================================================================
-# REITER SYSTEM (BOARD & INTERAKTIVE KARTEIKARTEN DECK)
-# =========================================================================
-st.write(f"### Workspace von {st.session_state.user_id} ({filter_subject})")
-tab_dashboard, tab_flashcards = st.tabs(["📊 Workspace-Board", "🃏 KI-Karteikarten Deck"])
-
-with tab_dashboard:
-    col1, col2, col3 = st.columns(3)
-
+    # TASKS KANBAN
+    st.write("### 🗂️ Dein Workspace-Board")
+    col1, col2 = st.columns(2)
     with col1:
         st.html("<div class='column-header'><span style='color: #ef4444;'>🔴</span> Tests & Arbeiten</div>")
-        tests = [t for t in active_tasks if t.get("type") == "Test"]
-        if not tests: st.caption("Keine Tests geplant. 🎉")
-        for t in tests:
-            days_left = get_days_left_string(t.get('termin'))
-            countdown = f"<div class='countdown-badge'>{days_left}</div>" if days_left else ""
-            st.html(f"<div class='task-card' style='border-left-color: #ef4444;'><div class='card-info-line'>📅 {t.get('termin')} | {t.get('prioritaet')}</div><div class='card-title'>{t['title']}</div><div class='card-summary'>{t['summary']}</div>{countdown}</div>")
-            if st.button("✅ Erledigt", key=f"del_{t['id']}", use_container_width=True):
+        for t in [t for t in st.session_state.tasks if t.get("type") == "Test"]:
+            st.html(f"<div class='task-card'><div class='card-info-line'>📅 {t['termin']}</div><div class='card-title'>{t['title']}</div><div class='card-summary'>{t['summary']}</div></div>")
+            if st.button("Erledigt ✅", key=f"del_{t['id']}", use_container_width=True):
                 st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != t['id']]
-                st.session_state.completed_count += 1
-                st.session_state.xp += 20
-                if st.session_state.streak == 0: st.session_state.streak = 1
-                save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak, "flashcards": st.session_state.flashcards})
-                st.rerun()
-
+                st.session_state.xp += 20; save_all_to_db(); st.rerun()
     with col2:
-        st.html("<div class='column-header'><span style='color: #f59e0b;'>🟡</span> Diese & Nächste Woche</div>")
-        upcoming = [t for t in active_tasks if t.get("type") in ["Hausaufgabe", "Test"] and is_within_next_fortnight(t.get("termin", ""))]
-        if not upcoming: st.caption("Alles erledigt! 😎")
-        for w in upcoming:
-            is_test = w.get("type") == "Test"
-            card_color = "#ef4444" if is_test else "#f59e0b"
-            days_left = get_days_left_string(w.get('termin'))
-            countdown = f"<div class='countdown-badge'>{days_left}</div>" if days_left else ""
-            st.html(f"<div class='task-card' style='border-left-color: {card_color};'><div class='card-info-line' style='color:#b45309; background:#fef3c7;'>📅 {w.get('termin')} | {w.get('prioritaet')}</div><div class='card-title'>{w['title']}</div><div class='card-summary'>{w['summary']}</div>{countdown}</div>")
-            if st.button("✅ Erledigt", key=f"del_up_{w['id']}", use_container_width=True):
-                st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != w['id']]
-                st.session_state.completed_count += 1
-                st.session_state.xp += 10
-                if st.session_state.streak == 0: st.session_state.streak = 1
-                save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak, "flashcards": st.session_state.flashcards})
-                st.rerun()
+        st.html("<div class='column-header'><span style='color: #f59e0b;'>🟡</span> Hausaufgaben</div>")
+        for t in [t for t in st.session_state.tasks if t.get("type") == "Hausaufgabe"]:
+            st.html(f"<div class='task-card' style='border-left-color:#f59e0b;'><div class='card-info-line' style='background:#fef3c7; color:#b45309;'>📅 {t['termin']}</div><div class='card-title'>{t['title']}</div><div class='card-summary'>{t['summary']}</div></div>")
+            if st.button("Erledigt ✅", key=f"del_{t['id']}", use_container_width=True):
+                st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != t['id']]
+                st.session_state.xp += 10; save_all_to_db(); st.rerun()
 
-    with col3:
-        st.html("<div class='column-header'><span style='color: #10b981;'>🟢</span> Aktivierter Lernplan</div>")
-        plan = [t for t in active_tasks if t.get("type") == "Lernplan"]
-        if not plan: st.caption("Kein aktiver Lernplan.")
-        for p in plan:
-            days_left = get_days_left_string(p.get('termin'))
-            countdown = f"<div class='countdown-badge'>{days_left}</div>" if days_left else ""
-            st.html(f"<div class='task-card' style='border-left-color: #10b981;'><div class='card-info-line' style='color:#047857; background:#d1fae5;'>📅 Bis {p.get('termin')} | {p.get('prioritaet')}</div><div class='card-title'>{p['title']}</div><div class='card-summary'>{p['summary']}</div>{countdown}</div>")
-            if st.button("✅ Schritt erledigt", key=f"del_p_{p['id']}", use_container_width=True):
-                st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != p['id']]
-                st.session_state.completed_count += 1
-                st.session_state.xp += 10
-                if st.session_state.streak == 0: st.session_state.streak = 1
-                save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak, "flashcards": st.session_state.flashcards})
-                st.rerun()
-
-with tab_flashcards:
-    st.write("### 🃏 Deine interaktiven KI-Karteikarten")
-    st.caption("Schreibe dem KI-Coach im Haupt-Chat einfach: 'Erstelle mir karteikarten für das Thema X', um neue Karten hinzuzufügen!")
+# =========================================================================
+# MODUS 2: KARTEIKARTEN-TRAINER (IMMER NOCH DABEI!)
+# =========================================================================
+elif st.session_state.app_mode == "Karteikarten":
+    st.title("🃏 Intelligenter Karteikarten-Trainer")
+    st.markdown("Lerne aktiv mit deinen erstellten Stapeln oder lass dir blitzschnell neue KI-Karten schmieden.")
     
-    if not st.session_state.flashcards:
-        st.info("Aktuell sind noch keine Karteikarten generiert worden.")
-    else:
-        st.session_state.card_idx = max(0, min(st.session_state.card_idx, len(st.session_state.flashcards) - 1))
-        card = st.session_state.flashcards[st.session_state.card_idx]
+    if st.session_state.flashcards:
+        idx = st.session_state.card_idx % len(st.session_state.flashcards)
+        card = st.session_state.flashcards[idx]
         
-        st.write(f"**Karteikarte {st.session_state.card_idx + 1} von {len(st.session_state.flashcards)}**")
-        
-        if not st.session_state.card_flipped:
-            st.info(f"❓ **FRAGE / BEGRIFF:**\n\n{card['question']}")
+        # Karteikarten Flip Visualisierung
+        if st.session_state.card_flipped:
+            st.html(f"<div class='flashcard-box flipped'>💡 Antwort:<br>{card['answer']}</div>")
         else:
-            st.success(f"💡 **ANTWORT / ERKLÄRUNG:**\n\n{card['answer']}")
+            st.html(f"<div class='flashcard-box'>❓ Frage ({card['subject']}):<br>{card['question']}</div>")
             
-            st.write("---")
-            q_col1, q_col2 = st.columns([1, 1])
-            with q_col1:
-                st.markdown("##### 🤖 Nachfrage zur Antwort")
+        b_col1, b_col2, b_col3 = st.columns(3)
+        with b_col1:
+            if st.button("🔄 Karte umdrehen", use_container_width=True):
+                st.session_state.card_flipped = not st.session_state.card_flipped; st.rerun()
+        with b_col2:
+            if st.button("✅ Gewusst (+5 XP)", use_container_width=True):
+                st.session_state.xp += 5; st.session_state.card_idx += 1
+                st.session_state.card_flipped = False; save_all_to_db(); st.success("Stark! Weiter so."); time.sleep(0.5); st.rerun()
+        with b_col3:
+            if st.button("❌ Nicht gewusst", use_container_width=True):
+                st.session_state.card_idx += 1; st.session_state.card_flipped = False; st.rerun()
                 
-                with st.form(f"card_form_{st.session_state.card_idx}", clear_on_submit=True):
-                    fc_col1, fc_col2, fc_col3 = st.columns([4, 3, 1], vertical_alignment="center")
-                    with fc_col1:
-                        user_card_q = st.text_input("Frag das Krokodil direkt:", label_visibility="collapsed", placeholder="Verstehst du etwas nicht?", key=f"card_q_field_{st.session_state.card_idx}")
-                    with fc_col2:
-                        card_audio = st.audio_input("Mikrofon", label_visibility="collapsed", key=f"card_audio_widget_{st.session_state.card_idx}")
-                    with fc_col3:
-                        submit_card = st.form_submit_button("🚀", use_container_width=True)
-                        
-                    if submit_card:
-                        final_card_q = user_card_q.strip() if user_card_q else ""
-                        
-                        if card_audio is not None:
-                            audio_card_text = transcribe_audio(card_audio)
-                            if audio_card_text:
-                                final_card_q = f"{final_card_q} {audio_card_text}".strip()
-                        
-                        if final_card_q:
-                            with st.spinner("Kroko überlegt... 🐊"):
-                                try:
-                                    q_response = client.chat.completions.create(
-                                        model="gpt-4o-mini",
-                                        messages=[
-                                            {"role": "system", "content": "Du bist ein kompakter Lerncoach. Beantworte die Schülerfrage zu dieser Karteikarten-Antwort extrem kurz, präzise, verständlich und ohne Begrüßungsfloskeln."},
-                                            {"role": "user", "content": f"Karteikarten-Frage: {card['question']}\nKarteikarten-Antwort: {card['answer']}\nSchüler-Nachfrage dazu: {final_card_q}"}
-                                        ],
-                                        temperature=0.3
-                                    )
-                                    st.session_state.card_ki_response = q_response.choices[0].message.content.strip()
-                                except Exception as e:
-                                    st.session_state.card_ki_response = f"Fehler bei der Anfrage: {e}"
-                            st.rerun()
-                            
-            with q_col2:
-                st.markdown("##### 🐊 Krokos Blitz-Erklärung")
-                if st.session_state.card_ki_response:
-                    st.info(st.session_state.card_ki_response)
-                else:
-                    st.caption("Stelle links eine Frage (Tippen oder Sprechen) und klicke auf 🚀, um hier eine Erklärung zu erhalten.")
-        
-        st.write("---")
-        c_col1, c_col2, c_col3, c_col4 = st.columns([1, 2, 1, 1])
-        with c_col1:
-            if st.button("⬅️ Zurück", use_container_width=True) and st.session_state.card_idx > 0:
-                st.session_state.card_idx -= 1
-                st.session_state.card_flipped = False
-                st.session_state.card_ki_response = ""
-                st.rerun()
-        with c_col2:
-            if st.button("🔄 Karte umdrehen / Lösung anzeigen", use_container_width=True):
-                st.session_state.card_flipped = not st.session_state.card_flipped
-                st.rerun()
-        with c_col3:
-            if st.button("Weiter ➡️", use_container_width=True) and st.session_state.card_idx < len(st.session_state.flashcards) - 1:
-                st.session_state.card_idx += 1
-                st.session_state.card_flipped = False
-                st.session_state.card_ki_response = ""
-                st.rerun()
-        with c_col4:
-            if st.button("🗑️ Karte löschen", use_container_width=True):
-                st.session_state.flashcards.pop(st.session_state.card_idx)
-                st.session_state.card_flipped = False
-                st.session_state.card_ki_response = ""
-                save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak, "flashcards": st.session_state.flashcards})
-                st.rerun()
+        if st.button("🗑️ Diese Karte löschen", use_container_width=True):
+            st.session_state.flashcards.pop(idx)
+            save_all_to_db(); st.rerun()
+    else:
+        st.info("Dein Karteikastendeck ist aktuell leer. Generiere neue Karten über das Formular unten!")
+
+    # Erstellungsbereich
+    st.write("---")
+    st.subheader("➕ Neue Lernkarten hinzufügen")
+    with st.form("add_card_form"):
+        f_sub = st.selectbox("Fach:", st.session_state.subjects)
+        f_q = st.text_input("Frage:")
+        f_a = st.text_input("Antwort:")
+        if st.form_submit_button("Karte einpacken"):
+            if f_q and f_a:
+                st.session_state.flashcards.append({"subject": f_sub, "question": f_q, "answer": f_a})
+                save_all_to_db(); st.success("Karte hinzugefügt!"); st.rerun()
+
+# =========================================================================
+# MODUS 3: NOTENSPIEGEL (AUCH VOLL INTACT!)
+# =========================================================================
+elif st.session_state.app_mode == "Notenspiegel":
+    st.title("📝 Dein persönlicher Notenspiegel")
+    st.markdown("Verwalte deine schulischen Leistungen und behalte den exakten Überblick über deine Schnitte.")
+    
+    with st.form("grade_form"):
+        g_col1, g_col2, g_col3 = st.columns(3)
+        with g_col1: g_sub = st.selectbox("Fach:", st.session_state.subjects)
+        with g_col2: g_val = st.number_input("Note (1-6):", min_value=1.0, max_value=6.0, step=0.5)
+        with g_col3: g_lbl = st.text_input("Art (z.B. Ex, Arbeit):")
+        if st.form_submit_button("Note eintragen 📝"):
+            st.session_state.grades.append({"subject": g_sub, "grade": g_val, "label": g_lbl, "date": datetime.now().strftime("%d.%m.%Y")})
+            save_all_to_db(); st.success("Eingetragen!"); st.rerun()
+
+    if st.session_state.grades:
+        st.write("### 📈 Deine Übersicht")
+        for s in st.session_state.subjects:
+            sub_grades = [g for g in st.session_state.grades if g["subject"] == s]
+            if sub_grades:
+                avg = sum([g["grade"] for g in sub_grades]) / len(sub_grades)
+                badges_html = "".join([f"<span class='grade-badge'>{g['grade']} ({g['label']})</span>" for g in sub_grades])
+                st.markdown(f"**{s}** (Schnitt: {avg:.2f})")
+                st.html(f"<div>{badges_html}</div><br>")
+    else:
+        st.info("Noch keine Noten eingetragen. Mach deine Statistiken bereit!")
+
+# =========================================================================
+# MODUS 4: KROKO-LERNZENTRUM (UNABHÄNGIGES PREMIUM GAMING ACCORD)
+# =========================================================================
+elif st.session_state.app_mode == "Lernzentrum":
+    st.html("<div class='gaming-container'>")
+    st.html("<h1 class='gaming-title'>🎯 Kroko-Lernzentrum (Fokus-Modus)</h1>")
+    st.markdown("Willkommen in deiner ablenkungsfreien Arena. Bringe der KI deine Handschrift bei, verarbeite Korrektur-Bilder und schalte Quest-Reihen frei.")
+    
+    # HANDSCHRIFT PROFILE SETUP
+    st.write("---")
+    st.subheader("✍️ Musterschrift-Gedächtnis (Schrift lernen)")
+    with st.expander("Bringe Kroko deine persönliche Handschrift bei (Einmaliges Setup)"):
+        st.info("Schreibe folgenden Satz auf ein Blatt Papier und lade das Foto hoch: 'Franz jagt im komplett verwahrlosten Taxi quer durch Bayern.'")
+        sample_img = st.file_uploader("Foto deiner Handschriftprobe hochladen:", type=["jpg", "jpeg", "png"], key="sample_uploader")
+        if st.button("Schriftprobe analysieren und einprägen! 🧠", use_container_width=True) and sample_img:
+            with st.spinner("Analysiere deine individuellen Schriftmerkmale... 🐊"):
+                img_b64 = encode_image(sample_img)
+                try:
+                    res = client.chat.completions.create(
+                        model="gpt-4o-mini",
+                        messages=[{"role": "user", "content": [
+                            {"type": "text", "text": "Analysiere die Handschrift auf diesem Bild basierend auf dem Mustersatz. Beschreibe prägnante Merkmale der Schriftzeichen, damit du sie auf anderen Bildern fehlerfrei wiedererkennen kannst."},
+                            {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}
+                        ]}]
+                    )
+                    st.session_state.handwriting_analysis = res.choices[0].message.content.strip()
+                    save_all_to_db(); st.success("Erfolgreich gelernt!"); st.rerun()
+                except Exception as e: st.error(f"Fehler: {e}")
+        if st.session_state.handwriting_analysis:
+            st.caption(f"**Gespeichertes Schriftprofil:** {st.session_state.handwriting_analysis}")
+
+    # SÜNDENREGISTER / KUCKUCKSEIER
+    st.write("---")
+    st.subheader("🥚 Deine aktiven Kuckuckseier (Fehler-Verwalter)")
+    
+    if st.session_state.kuckuckseier:
+        for idx, egg in enumerate(st.session_state.kuckuckseier):
+            st.html(f"""
+            <div class='kuckucksei-box'>
+                <h4>⚠️ Kuckucksei #{idx+1}: Fehler blockiert das Weiterkommen!</h4>
+                <p><b>Fach:</b> {egg['subject']} | <b>Erkannter Fehler:</b> {egg['error_found']}</p>
+                <p><b>⚔️ Herausforderung:</b> {egg['training_task']}</p>
+            </div>
+            """)
+            with st.form(f"solve_egg_form_{idx}"):
+                ans = st.text_area("Deine Antwort zur Fehlerbehebung:", key=f"egg_ans_{idx}")
+                if st.form_submit_button("Lösung einreichen! ⚔️"):
+                    with st.spinner("Prüfe Antwort..."):
+                        try:
+                            chk = client.chat.completions.create(
+                                model="gpt-4o-mini",
+                                messages=[{"role": "user", "content": f"Aufgabe: {egg['training_task']}\nAntwort: {ans}\nIst das korrekt? Antworte als JSON: {{'correct': true/false, 'feedback': '...'}}"}],
+                                response_format={"type": "json_object"}
+                            )
+                            eval_res = json.loads(chk.choices[0].message.content.strip())
+                            if eval_res.get("correct") == True:
+                                st.success("🎉 Richtig! Das Kuckucksei wurde zerschlagen! +30 XP")
+                                st.session_state.xp += 30; st.session_state.kuckuckseier.pop(idx)
+                                save_all_to_db(); time.sleep(1); st.rerun()
+                            else:
+                                st.error(f"❌ Fehler: {eval_res.get('feedback')}")
+                        except Exception as e: st.error(f"Fehler: {e}")
+    else:
+        st.info("Alle Fehler bereinigt! Dein Radar ist komplett grün.")
+
+    # MULTI UPLOAD IM SCANNER
+    with st.expander("📸 Korrigierte Arbeiten einsenden (Multi-Upload / Max. 4 Bilder)"):
+        uploaded_corrs = st.file_uploader("Bilder hochladen:", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="multi_corr_uploader")
+        corr_sub = st.selectbox("Für welches Fach?", st.session_state.subjects)
+        if st.button("Alle Scans starten 👁️", use_container_width=True) and uploaded_corrs:
+            with st.spinner("Kroko extrahiert Fehler... 🐊"):
+                for f in uploaded_corrs[:4]:
+                    img_b64 = encode_image(f)
+                    scan_prompt = f"""Analysiere die Arbeit für das Fach {corr_sub}. Finde Lehrerkorrekturen, extrahiere EINEN Kernfehler und erstelle eine Übung.
+                    Nutze dieses Schriftprofil zum Entziffern: {st.session_state.handwriting_analysis}
+                    Antworte als JSON: {{ "error_found": "...", "training_task": "..." }}"""
+                    try:
+                        res = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[{"role": "user", "content": [{"type": "text", "text": scan_prompt}, {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_b64}"}}]}],
+                            response_format={"type": "json_object"}
+                        )
+                        scan_res = json.loads(res.choices[0].message.content.strip())
+                        st.session_state.kuckuckseier.append({
+                            "subject": corr_sub, "error_found": scan_res.get("error_found"), "training_task": scan_res.get("training_task")
+                        })
+                    except Exception: pass
+                save_all_to_db(); st.rerun()
+
+    # THEMEN ZERLEGER (QUEST SYSTEM)
+    st.write("---")
+    st.subheader("🗺️ Deine aktive Quest-Reihe (KI-Themen-Zerleger)")
+    quests_blocked = len(st.session_state.kuckuckseier) > 0
+    
+    if not st.session_state.gaming_quests:
+        st.info("Aktuell läuft keine Quest-Reihe. Generiere dir eine neue Kampagne!")
+        with st.form("quest_gen_form"):
+            q_sub = st.selectbox("Fach:", st.session_state.subjects)
+            q_top = st.text_input("Welcher Stoffberg soll zerlegt werden?")
+            if st.form_submit_button("🔥 Quest-Reihe schmieden!") and q_top:
+                with st.spinner("Kroko baut die Quest... 🐊"):
+                    try:
+                        res = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[{"role": "user", "content": f"Zerlege das Thema '{q_top}' für {q_sub} in exakt 3 Quests. Antworte als JSON: {{ 'quests': [ {{ 'step': 1, 'title': '...', 'description': '...' }} ] }}"}],
+                            response_format={"type": "json_object"}
+                        )
+                        st.session_state.gaming_quests = json.loads(res.choices[0].message.content.strip()).get("quests", [])
+                        save_all_to_db(); st.rerun()
+                    except Exception as e: st.error(f"Fehler: {e}")
+    else:
+        for idx, q in enumerate(st.session_state.gaming_quests):
+            is_locked = "locked" if quests_blocked else ("active-quest" if idx == 0 else "")
+            status_symbol = "🔒 REPARIERST DU NOCH?" if quests_blocked else ("⚔️ AKTIV" if idx == 0 else "⏳ GESPERRT")
+            st.html(f"<div class='quest-card {is_locked}'><h4>{status_symbol} — Quest {q.get('step')}: {q.get('title')}</h4><p>{q.get('description')}</p></div>")
+            
+            if idx == 0 and not quests_blocked:
+                if st.button("Quest abschließen & einsammeln! 🏆", use_container_width=True):
+                    st.session_state.gaming_quests.pop(0)
+                    st.session_state.xp += 25; save_all_to_db(); st.balloons(); st.rerun()
+                    
+        if st.button("❌ Quest-Reihe abbrechen", use_container_width=True):
+            st.session_state.gaming_quests = []; save_all_to_db(); st.rerun()
+
+    st.html("</div>")

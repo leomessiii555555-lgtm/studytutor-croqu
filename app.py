@@ -227,7 +227,6 @@ def save_all_to_db():
         "kuckuckseier": st.session_state.kuckuckseier, "handwriting_analysis": st.session_state.handwriting_analysis
     })
 
-# FIXED: Der Text wird nun sicher dem Verlauf übergeben und gerendert, bevor neu geladen wird!
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
     with st.spinner("Überlege... 🐊"):
@@ -397,7 +396,6 @@ if st.session_state.app_mode == "Dashboard":
             """)
         st.html("</div>")
 
-    # EXPANDER JETZT STANDARDMÄSSIG OFFEN DAMIT MAN DIE ANTWORT DIREKT SIEHT
     with st.expander(f"💬 KI-Lerncoach & Mentor", expanded=True):
         for msg in st.session_state.messages[-4:]:
             with st.chat_message(msg["role"]): st.write(msg["content"])
@@ -665,7 +663,7 @@ elif st.session_state.app_mode == "Lernzentrum":
             q_top = st.text_input("Thema:")
             if st.form_submit_button("🔥 Quest-Reihe schmieden!"):
                 if q_top:
-                    with St.spinner("Schmiede..."):
+                    with st.spinner("Schmiede..."):
                         try:
                             res = client.chat.completions.create(
                                 model="gpt-4o-mini", messages=[{"role": "user", "content": f"Baue 3 Quests für {q_sub} Thema {q_top}. JSON: {{ 'quests': [ {{ 'step': 1, 'title': '...', 'description': '...' }} ] }}"}],
@@ -681,4 +679,4 @@ elif st.session_state.app_mode == "Lernzentrum":
             if idx == 0 and not quests_blocked:
                 if st.button("Quest abschließen! 🏆"):
                     st.session_state.gaming_quests.pop(0)
-                    st.session_state.xp += 25; save_all_to_db(); st.balloons(); st.rerun())
+                    st.session_state.xp += 25; save_all_to_db(); st.balloons(); st.rerun()

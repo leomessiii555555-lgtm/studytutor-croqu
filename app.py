@@ -2,22 +2,24 @@ import streamlit as st
 import openai
 import requests
 import json
-import base64
 from datetime import datetime, timedelta
 
 # =========================================================================
-# SICHERHEITS-KONFIGURATION
+# SICHERHEITS-KONFIGURATION & CLIENTS
 # =========================================================================
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
+
+# Globaler OpenAI Client für bessere Performance
+client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 USER_ID = "alex_soldat"
 DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "Physik", "Chemie", "Geografie", "Informatik"]
 
 st.set_page_config(page_title="StudyTutor 🐊", layout="wide", initial_sidebar_state="expanded")
 
-# PREMIUM CUSTOM CSS (Optimiert für direkte Sichtbarkeit)
+# PREMIUM CUSTOM CSS
 st.html("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght=300;400;500;600;700&display=swap');
@@ -42,29 +44,25 @@ st.html("""
 """)
 
 # =========================================================================
-# INTELLIGENTE DATUMS-LOGIK (Berechnet Wochentage & "Nächste Woche")
+# INTELLIGENTE DATUMS-LOGIK
 # =========================================================================
 def parse_date_from_text(zeit_info):
     now = datetime.now()
     wochentage = {"montag": 0, "dienstag": 1, "mittwoch": 2, "donnerstag": 3, "freitag": 4, "samstag": 5, "sonntag": 6}
-    
     zeit_info_lower = zeit_info.lower()
     
-    # Fall 1: "Nächste Woche" ohne genauen Tag -> Setze auf den nächsten Montag
     if "nächst" in zeit_info_lower and not any(tag in zeit_info_lower for tag in wochentage):
         tage_bis_montag = (0 - now.weekday() + 7) % 7
         if tage_bis_montag == 0: tage_bis_montag = 7
         ziel_datum = now + timedelta(days=tage_bis_montag)
         return f"Nächste Woche (ca. {ziel_datum.strftime('%d.%m.%Y')})"
         
-    # Fall 2: Bestimmter Wochentag genannt (z.B. "Dienstag")
     for tag, index in wochentage.items():
         if tag in zeit_info_lower:
             tage_unterschied = (index - now.weekday() + 7) % 7
             if tage_unterschied == 0 and "nächst" in zeit_info_lower:
                 tage_unterschied = 7
             elif tage_unterschied == 0:
-                # Wenn heute Dienstag ist und man "Dienstag" sagt, meint man meistens heute oder nächsten
                 tage_unterschied = 0 
                 
             ziel_datum = now + timedelta(days=tage_unterschied)
@@ -75,10 +73,10 @@ def parse_date_from_text(zeit_info):
             else:
                 return f"Diesen {tag_name}, {ziel_datum.strftime('%d.%m.%Y')}"
                 
-    return zeit_info # Fallback, falls die KI etwas anderes geliefert hat
+    return zeit_info
 
 # =========================================================================
-# DB-SYSTEM
+# DB-SYSTEM & API LOGIK
 # =========================================================================
 def load_from_supabase():
     headers = {"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"}
@@ -87,7 +85,8 @@ def load_from_supabase():
         response = requests.get(url, headers=headers)
         if response.status_code == 200 and response.json():
             return response.json()[0].get('app_state')
-    except: pass
+    except Exception as e:
+        st.sidebar.error(f"Fehler beim Laden der Daten: {e}")
     return None
 
 def save_to_supabase(state_data):
@@ -95,26 +94,28 @@ def save_to_supabase(state_data):
     headers = {"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}", "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates"}
     url = f"{SUPABASE_URL}/rest/v1/studytutor_data"
     payload = {"id": USER_ID, "app_state": state_data, "updated_at": datetime.utcnow().isoformat()}
-    try: requests.post(url, headers=headers, json=payload)
-    except: pass
+    try: 
+        requests.post(url, headers=headers, json=payload)
+    except Exception as e:
+        st.error(f"Fehler beim Speichern der Daten: {e}")
 
 def transcribe_audio(audio_file):
     try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
         audio_data = audio_file.read()
         if not audio_data: return None
         transcript = client.audio.transcriptions.create(model="whisper-1", file=("audio.wav", audio_data, "audio/wav"))
         return transcript.text
-    except: return None
+    except Exception as e: 
+        st.error(f"Audio-Fehler: {e}")
+        return None
 
 def extract_tasks_with_thinking(text, subjects_list):
     try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
         prompt = f"""Analysiere den folgenden Schul-Text extrem gründlich.
         Verfügbare Fächer: {', '.join(subjects_list)}
         
         STRIKTE REGELN FÜR DIE SORTIERUNG:
-        1. Wenn 'Test', 'Arbeit', 'Prüfung', 'Klausur' vorkommt -> Typ MUSS "Test" sein (Egal ob diese oder nächste Woche!).
+        1. Wenn 'Test', 'Arbeit', 'Prüfung', 'Klausur' vorkommt -> Typ MUSS "Test" sein.
         2. Wenn KEIN Test vorkommt, aber 'nächste Woche' oder 'Hausaufgabe' -> Typ ist "Nächste Woche".
         3. Wenn es ein 'Lernplan' ist -> Typ ist "Lernplan".
         
@@ -122,7 +123,7 @@ def extract_tasks_with_thinking(text, subjects_list):
         
         Antworte NUR mit einer JSON-Liste von Objekten:
         [
-          {{"title": "Fachname", "type": "Test" oder "Nächste Woche" oder "Lernplan", "summary": "Kurztitel", "zeitpunkt": "z.B. Dienstag oder nächste Woche oder Mittwoch"}}
+          {{"title": "Fachname", "type": "Test" oder "Nächste Woche" oder "Lernplan", "summary": "Kurztitel", "zeitpunkt": "z.B. Dienstag oder nächste Woche"}}
         ]
         Text: "{text}" """
         
@@ -134,7 +135,6 @@ def extract_tasks_with_thinking(text, subjects_list):
         now_str = datetime.now().strftime("%d.%m.%Y")
         for item in extracted_list:
             raw_zeit = item.get("zeitpunkt", "Unbekannt")
-            # Berechne das echte Datum aus dem Text
             echtes_datum = parse_date_from_text(raw_zeit)
             
             tasks.append({
@@ -142,14 +142,46 @@ def extract_tasks_with_thinking(text, subjects_list):
                 "type": item.get("type", "Nächste Woche"),
                 "summary": item.get("summary", "Neue Aufgabe"),
                 "notes": text,
-                "termin": echtes_datum, # Das berechnete, lesbare Datum direkt für die Karte!
+                "termin": echtes_datum, 
                 "erstellt_am": now_str,
                 "id": f"{datetime.utcnow().timestamp()}_{item.get('title')}"
             })
         return tasks
-    except: return []
+    except Exception as e: 
+        st.error(f"Fehler bei der KI-Extraktion: {e}")
+        return []
 
-# Initialisierung
+# ZENTRALE INPUT-VERARBEITUNG (Behebt doppelten Code für Text & Audio)
+def process_user_input(input_text):
+    if not input_text or input_text.strip().lower() in ["you", "you.", ""]:
+        return
+
+    new_tasks = extract_tasks_with_thinking(input_text, st.session_state.subjects)
+    for task in new_tasks:
+        if not any(t.get("title") == task["title"] and t.get("summary") == task["summary"] for t in st.session_state.tasks):
+            st.session_state.tasks.insert(0, task)
+            
+    st.session_state.messages.append({"role": "user", "content": input_text})
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini", 
+            messages=[
+                {"role": "system", "content": "Bestätige kurz und sachlich die Eintragung."}, 
+                {"role": "user", "content": input_text}
+            ], 
+            temperature=0.2
+        )
+        st.session_state.messages.append({"role": "assistant", "content": response.choices[0].message.content})
+        save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
+    except Exception as e: 
+        st.error(f"Fehler bei KI-Bestätigung: {e}")
+        
+    st.rerun()
+
+# =========================================================================
+# INITIALISIERUNG
+# =========================================================================
 if "initialized" not in st.session_state:
     db_state = load_from_supabase()
     if db_state:
@@ -162,77 +194,49 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
-user_input = None
-
 # AUDIO INPUT SIDEBAR
 audio_file = st.sidebar.audio_input("🎙️ Sprachbefehl aufnehmen", key="main_audio_input")
 if audio_file and st.sidebar.button("🚀 Sprachnachricht senden", use_container_width=True):
     text_from_speech = transcribe_audio(audio_file)
-    if text_from_speech and text_from_speech.strip().lower() not in ["you", "you.", ""]:
-        user_input = text_from_speech
+    if text_from_speech:
+        process_user_input(text_from_speech)
 
-# TEXT INPUT VERARBEITUNG
-if user_input:
-    new_tasks = extract_tasks_with_thinking(user_input, st.session_state.subjects)
-    for task in new_tasks:
-        if not any(t.get("title") == task["title"] and t.get("summary") == task["summary"] for t in st.session_state.tasks):
-            st.session_state.tasks.insert(0, task)
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "system", "content": "Bestätige kurz und sachlich die Eintragung."}, {"role": "user", "content": user_input}], temperature=0.2)
-        st.session_state.messages.append({"role": "assistant", "content": response.choices[0].message.content})
-        save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
-    except: pass
-    st.rerun()
-
-# SIDEBAR NAVIGATION
+# SIDEBAR NAVIGATION & FÄCHER-ANZEIGE
 with st.sidebar:
     st.title("StudyTutor 🐊")
     st.write("---")
     st.subheader("📚 Meine Fächer")
     for sub in st.session_state.subjects:
-        count = len([t for t in st.session_state.tasks if t.get("title").lower() == sub.lower()])
-        st.html(f"<div class='subject-badge'>{sub} ({count})" if count > 0 else f"<div class='subject-badge'>{sub}</div>")
+        count = len([t for t in st.session_state.tasks if t.get("title", "").lower() == sub.lower()])
+        st.html(f"<div class='subject-badge'>{sub} ({count})</div>" if count > 0 else f"<div class='subject-badge'>{sub}</div>")
     st.write("---")
-    if st.button("🗑️ App komplett zurücksetzen"):
+    if st.button("🗑️ App komplett zurücksetzen", use_container_width=True):
         st.session_state.tasks = []
         st.session_state.messages = [{"role": "assistant", "content": "Zurückgesetzt."}]
         save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects})
         st.rerun()
 
-# MAIN WORKSPACE
+# MAIN WORKSPACE - CHAT
 with st.expander("💬 KI-Lerncoach Chatverlauf", expanded=True):
     for msg in st.session_state.messages[-3:]:
-        with st.chat_message(msg["role"]): st.write(msg["content"])
+        with st.chat_message(msg["role"]): 
+            st.write(msg["content"])
+            
     if text_input := st.chat_input("Schreib deine Aufgaben hier hinein..."):
-        st.session_state["text_processing_input"] = text_input
-        
-if "text_processing_input" in st.session_state:
-    user_input = st.session_state.pop("text_processing_input")
-    new_tasks = extract_tasks_with_thinking(user_input, st.session_state.subjects)
-    for task in new_tasks:
-        if not any(t.get("title") == task["title"] and t.get("summary") == task["summary"] for t in st.session_state.tasks):
-            st.session_state.tasks.insert(0, task)
-    st.session_state.messages.append({"role": "user", "content": user_input})
-    try:
-        client = openai.OpenAI(api_key=OPENAI_API_KEY)
-        response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "system", "content": "Bestätige kurz die Eintragung."}, {"role": "user", "content": user_input}], temperature=0.2)
-        st.session_state.messages.append({"role": "assistant", "content": response.choices[0].message.content})
-        save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
-    except: pass
-    st.rerun()
+        process_user_input(text_input)
 
+# =========================================================================
+# KANBAN BOARD / WORKSPACE DISPLAY
+# =========================================================================
 st.write("### 📊 Mein aktueller Workspace")
 col1, col2, col3 = st.columns(3)
 
-# SPALTE 1: TESTS
+# SPALTE 1: TESTS & ARBEITEN
 with col1:
     st.html("<div class='column-header'><span style='color: #ef4444;'>🔴</span> Tests & Arbeiten</div>")
     tests = [t for t in st.session_state.tasks if t.get("type") == "Test"]
     if not tests: st.caption("Keine Tests geplant. 🎉")
     for t in tests:
-        # HIER WIRD DAS DATUM UND DER WOCHENTAG DIREKT ANGEZEIGT:
         st.html(f"""
         <div class='task-card' style='border-left-color: #ef4444;'>
             <div class='card-info-line'>📅 {t.get('termin', 'Kein Datum')}</div>
@@ -244,16 +248,26 @@ with col1:
         with st.popover("Originaltext zeigen", use_container_width=True):
             st.info(t["notes"])
 
-# SPALTE 2: NÄCHSTE WOCHE (Hier landen jetzt alle normalen Aufgaben für nächste Woche)
+# SPALTE 2: NÄCHSTE WOCHE (Zeigt normale Aufgaben UND Tests für nächste Woche an!)
 with col2:
     st.html("<div class='column-header'><span style='color: #f59e0b;'>🟡</span> Nächste Woche</div>")
-    next_week = [t for t in st.session_state.tasks if t.get("type") == "Nächste Woche"]
+    
+    # Filtert alles, was den Typ "Nächste Woche" hat ODER wo das berechnete Datum "nächst" enthält
+    next_week = [
+        t for t in st.session_state.tasks 
+        if t.get("type") == "Nächste Woche" or "nächst" in str(t.get("termin", "")).lower()
+    ]
+    
     if not next_week: st.caption("Alles ruhig! 😎")
     for w in next_week:
+        # Wenn es ein Test ist, färben wir den Rand rot ein, ansonsten gelb
+        card_color = "#ef4444" if w.get("type") == "Test" else "#f59e0b"
+        badge_label = f"⚠️ TEST | {w['title']}" if w.get("type") == "Test" else w['title']
+        
         st.html(f"""
-        <div class='task-card' style='border-left-color: #f59e0b;'>
+        <div class='task-card' style='border-left-color: {card_color};'>
             <div class='card-info-line' style='color:#b45309; background:#fef3c7;'>📅 {w.get('termin', 'Nächste Woche')}</div>
-            <div class='card-title'>{w['title']}</div>
+            <div class='card-title'>{badge_label}</div>
             <div class='card-summary'>{w['summary']}</div>
             <div class='card-date'>Notiert am: {w.get('erstellt_am')}</div>
         </div>

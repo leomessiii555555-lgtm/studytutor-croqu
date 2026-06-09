@@ -101,6 +101,8 @@ if "user_id" not in st.session_state:
 if "xp" not in st.session_state: st.session_state.xp = 0
 if "streak" not in st.session_state: st.session_state.streak = 0
 if "flashcards" not in st.session_state: st.session_state.flashcards = []
+if "card_flipped" not in st.session_state: st.session_state.card_flipped = False
+if "card_ki_response" not in st.session_state: st.session_state.card_ki_response = ""
 
 # =========================================================================
 # UTILITIES & IMAGE ENCODING
@@ -310,6 +312,8 @@ if "initialized_user" not in st.session_state or st.session_state.initialized_us
         st.session_state.xp = 0
         st.session_state.streak = 0
         st.session_state.flashcards = []
+    st.session_state.card_flipped = False
+    st.session_state.card_ki_response = ""
     st.session_state.initialized_user = st.session_state.user_id
 
 # =========================================================================
@@ -385,6 +389,8 @@ with st.sidebar:
         st.session_state.xp = 0
         st.session_state.streak = 0
         st.session_state.flashcards = []
+        st.session_state.card_flipped = False
+        st.session_state.card_ki_response = ""
         st.session_state.messages = [{"role": "assistant", "content": "Zurückgesetzt."}]
         save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": 0, "grades": [], "xp": 0, "streak": 0, "flashcards": []})
         st.rerun()
@@ -429,7 +435,6 @@ if critical_subjects:
 if st.session_state.grades:
     st.write(f"### 📝 Aktueller Notenspiegel von {st.session_state.user_id}")
     
-    # Neues dediziertes Overlay-Fenster für erweiterte Notenübersichten und Zielrechner
     with st.popover("📊 Erweiterte Noten-Analyse & Zielrechner öffnen", use_container_width=True):
         st.markdown("### 📊 Alle Schularbeitsnoten im Überblick")
         sub_grades = {}
@@ -466,7 +471,6 @@ if selected_focus_id:
     if focus_task:
         st.html(f"<div class='focus-box'><div style='font-size: 0.85rem; font-weight: 700; color: #c084fc; margin-bottom: 4px;'>🎯 AKTUELLER REINZOOM-FOKUS</div><div style='font-size: 1.6rem; font-weight: 700; margin-bottom: 4px;'>{focus_task['title']} — {focus_task['summary']}</div><div>Fällig am: {focus_task.get('termin')} | Prio: {focus_task.get('prioritaet')}</div></div>")
         
-        # Pomodoro Einbindung direkt in das Widget
         p_col1, p_col2 = st.columns([1, 2])
         with p_col1:
             st.write("⏱️ **Live Pomodoro**")
@@ -545,37 +549,78 @@ with tab_dashboard:
                 save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak, "flashcards": st.session_state.flashcards})
                 st.rerun()
 
-# 🃏 KI CARTEIKARTEN REITER (FLASHCARDS VISUALISIERUNG)
+# 🃏 KI CARTEIKARTEN REITER (FLASHCARDS VISUALISIERUNG & DEEP-DIVE ASYNC FRAGEN)
 with tab_flashcards:
     st.write("### 🃏 Deine interaktiven KI-Karteikarten")
-    st.caption("Schreibe dem KI-Coach einfach im Chat 'Erstelle mir Karteikarten für das Thema X', um neue Karten hinzuzufügen!")
+    st.caption("Schreibe dem KI-Coach im Haupt-Chat einfach: 'Erstelle mir Karteikarten für das Thema X', um neue Karten hinzuzufügen!")
     
     if not st.session_state.flashcards:
         st.info("Aktuell sind noch keine Karteikarten generiert worden.")
     else:
-        if "card_idx" not in st.session_state: st.session_state.card_idx = 0
+        # Index-Absicherung
         st.session_state.card_idx = max(0, min(st.session_state.card_idx, len(st.session_state.flashcards) - 1))
-        
         card = st.session_state.flashcards[st.session_state.card_idx]
+        
         st.write(f"**Karteikarte {st.session_state.card_idx + 1} von {len(st.session_state.flashcards)}**")
         
-        flip = st.checkbox("🔄 Karte umdrehen (Antwort zeigen)", key=f"flip_card_{st.session_state.card_idx}")
-        if not flip:
+        # Visuelle Anzeige Vorder- / Rückseite
+        if not st.session_state.card_flipped:
             st.info(f"❓ **FRAGE / BEGRIFF:**\n\n{card['question']}")
         else:
             st.success(f"💡 **ANTWORT / ERKLÄRUNG:**\n\n{card['answer']}")
             
-        c_col1, c_col2, c_col3 = st.columns([1, 1, 2])
+            # INTEGRATION: Minimalistisches KI-Nachfrage-System direkt unter der Antwort
+            st.write("---")
+            q_col1, q_col2 = st.columns([1, 1])
+            with q_col1:
+                st.markdown("##### 🤖 Nachfrage zur Antwort")
+                user_card_q = st.text_input("Verstehst du etwas nicht? Frag das Krokodil direkt:", key=f"card_q_field_{st.session_state.card_idx}")
+                if st.button("🚀 Nachfrage absenden", use_container_width=True, key=f"btn_card_q_{st.session_state.card_idx}"):
+                    if user_card_q.strip():
+                        with st.spinner("Kroko überlegt... 🐊"):
+                            try:
+                                q_response = client.chat.completions.create(
+                                    model="gpt-4o-mini",
+                                    messages=[
+                                        {"role": "system", "content": "Du bist ein kompakter Lerncoach. Beantworte die Schülerfrage zu dieser Karteikarten-Antwort extrem kurz, präzise, verständlich und ohne Begrüßungsfloskeln."},
+                                        {"role": "user", "content": f"Karteikarten-Frage: {card['question']}\nKarteikarten-Antwort: {card['answer']}\nSchüler-Nachfrage dazu: {user_card_q}"}
+                                    ],
+                                    temperature=0.3
+                                )
+                                st.session_state.card_ki_response = q_response.choices[0].message.content.strip()
+                            except Exception as e:
+                                st.session_state.card_ki_response = f"Fehler bei der Anfrage: {e}"
+                        st.rerun()
+            with q_col2:
+                st.markdown("##### 🐊 Krokos Blitz-Erklärung")
+                if st.session_state.card_ki_response:
+                    st.info(st.session_state.card_ki_response)
+                else:
+                    st.caption("Stelle links eine Frage zu dieser Karte, um hier eine blitzschnelle Erklärung zu erhalten.")
+        
+        st.write("---")
+        # Das neue Button-Layout: Zentraler, großer Umdreh-Button zwischen Zurück und Weiter
+        c_col1, c_col2, c_col3, c_col4 = st.columns([1, 2, 1, 1])
         with c_col1:
             if st.button("⬅️ Zurück", use_container_width=True) and st.session_state.card_idx > 0:
                 st.session_state.card_idx -= 1
+                st.session_state.card_flipped = False
+                st.session_state.card_ki_response = ""
                 st.rerun()
         with c_col2:
-            if st.button("Weiter ➡️", use_container_width=True) and st.session_state.card_idx < len(st.session_state.flashcards) - 1:
-                st.session_state.card_idx += 1
+            if st.button("🔄 Karte umdrehen / Lösung anzeigen", use_container_width=True):
+                st.session_state.card_flipped = not st.session_state.card_flipped
                 st.rerun()
         with c_col3:
-            if st.button("🗑️ Karteikarte löschen", use_container_width=True):
+            if st.button("Weiter ➡️", use_container_width=True) and st.session_state.card_idx < len(st.session_state.flashcards) - 1:
+                st.session_state.card_idx += 1
+                st.session_state.card_flipped = False
+                st.session_state.card_ki_response = ""
+                st.rerun()
+        with c_col4:
+            if st.button("🗑️ Karte löschen", use_container_width=True):
                 st.session_state.flashcards.pop(st.session_state.card_idx)
+                st.session_state.card_flipped = False
+                st.session_state.card_ki_response = ""
                 save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak, "flashcards": st.session_state.flashcards})
                 st.rerun()

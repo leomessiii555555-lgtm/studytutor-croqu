@@ -174,96 +174,99 @@ def transcribe_audio(audio_file):
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
 
-    now = datetime.now()
-    now_str = now.strftime("%d.%m.%Y")
-    wochentage_map = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
-    weekday_str = wochentage_map[now.weekday()]
+    # Startet die visuelle Nachdenk-Animation auf der Website
+    with st.spinner("Überlege... 🐊"):
+        now = datetime.now()
+        now_str = now.strftime("%d.%m.%Y")
+        wochentage_map = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
+        weekday_str = wochentage_map[now.weekday()]
 
-    tasks_context = [{"id": t.get("id"), "title": t.get("title"), "summary": t.get("summary"), "type": t.get("type"), "termin": t.get("termin")} for t in st.session_state.tasks]
-    grades_context = st.session_state.grades
+        tasks_context = [{"id": t.get("id"), "title": t.get("title"), "summary": t.get("summary"), "type": t.get("type"), "termin": t.get("termin")} for t in st.session_state.tasks]
+        grades_context = st.session_state.grades
 
-    prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
-    Deine Aufgabe ist es, Schüler strategisch zu beraten, Noten zu tracken, hochgeladenen Stoff zu analysieren UND das Dashboard fehlerfrei zu steuern.
+        prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
+        Deine Aufgabe ist es, Schüler strategisch zu beraten, Noten zu tracken, hochgeladenen Stoff zu analysieren UND das Dashboard fehlerfrei zu steuern.
 
-    HEUTIGES DATUM: {weekday_str}, der {now_str}
-    Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
+        HEUTIGES DATUM: {weekday_str}, der {now_str}
+        Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
 
-    Bisherige Noten des Schülers: {json.dumps(grades_context, ensure_ascii=False)}
-    Aktuelle Aufgaben auf dem Board: {json.dumps(tasks_context, ensure_ascii=False)}
+        Bisherige Noten des Schülers: {json.dumps(grades_context, ensure_ascii=False)}
+        Aktuelle Aufgaben auf dem Board: {json.dumps(tasks_context, ensure_ascii=False)}
 
-    User-Nachricht: "{input_text}"
+        User-Nachricht: "{input_text}"
 
-    STRIKTE REGELN FÜR DIE STRUKTUR (KEINE AUTOMATISCHEN LERNPLÄNE MEHR):
-    1. Wenn der User einen neuen TEST oder eine HAUSAUFGABE meldet, erstelle AUSSCHLIESSLICH diesen EINEN Eintrag mit Typ 'Test' oder 'Hausaufgabe'.
-    2. Generiere NIEMALS automatisch ungefragt einen mehrtägigen Lernplan (keine Einträge mit Typ 'Lernplan' oder "Tag 1, Tag 2"-Stufen erzeugen), AUSSER der User verlangt explizit in seiner Nachricht einen Lernplan (z.B. "Erstelle mir einen Lernplan für...").
-    3. Der 'summary'-Wert eines Tests/einer Hausaufgabe darf NIEMALS Bezeichnungen wie "Tag X" enthalten! Er muss sauber das Thema oder die Arbeit benennen (z.B. "Deutsch-Test" oder "Schularbeit zu Thema X").
+        STRIKTE REGELN FÜR DIE STRUKTUR (KEINE AUTOMATISCHEN LERNPLÄNE MEHR):
+        1. Wenn der User einen neuen TEST oder eine HAUSAUFGABE meldet, erstelle AUSSCHLIESSLICH diesen EINEN Eintrag mit Typ 'Test' oder 'Hausaufgabe'.
+        2. Generiere NIEMALS automatisch ungefragt einen mehrtägigen Lernplan (keine Einträge mit Typ 'Lernplan' oder "Tag 1, Tag 2"-Stufen erzeugen), AUSSER der User verlangt explizit in seiner Nachricht einen Lernplan (z.B. "Erstelle mir einen Lernplan für...").
+        3. Der 'summary'-Wert eines Tests/einer Hausaufgabe darf NIEMALS Bezeichnungen wie "Tag X" enthalten! Er muss sauber das Thema oder die Arbeit benennen (z.B. "Deutsch-Test" oder "Schularbeit zu Thema X").
 
-    Antworte AUSSCHLIESSLICH im validen JSON-Format:
-    {{
-      "assistant_reply": "Deine persönliche, motivierende Antwort an den Schüler.",
-      "tasks_to_add": [
+        Antworte AUSSCHLIESSLICH im validen JSON-Format:
         {{
-          "title": "Fachname (MUSS exakt aus der Liste sein)",
-          "type": "Test" oder "Hausaufgabe" oder "Lernplan",
-          "summary": "Sauberer Titel (NUR falls explizit gewünscht mit 'Tag X:' beginnen!)",
-          "prioritaet": "🚨 Hoch" oder "🟡 Mittel" oder "🟢 Niedrig",
-          "termin": "DD.MM.YYYY"
+          "assistant_reply": "Deine persönliche, motivierende Antwort an den Schüler.",
+          "tasks_to_add": [
+            {{
+              "title": "Fachname (MUSS exakt aus der Liste sein)",
+              "type": "Test" oder "Hausaufgabe" oder "Lernplan",
+              "summary": "Sauberer Titel (NUR falls explizit gewünscht mit 'Tag X:' beginnen!)",
+              "prioritaet": "🚨 Hoch" oder "🟡 Mittel" oder "🟢 Niedrig",
+              "termin": "DD.MM.YYYY"
+            }}
+          ],
+          "tasks_to_delete": [],
+          "grade_to_add": {{ "subject": "Fachname", "grade": 4, "note_label": "Schularbeit" }} // optional
         }}
-      ],
-      "tasks_to_delete": [],
-      "grade_to_add": {{ "subject": "Fachname", "grade": 4, "note_label": "Schularbeit" }} // optional
-    }}
-    """
+        """
 
-    content_payload = [{"type": "text", "text": prompt}]
-    
-    if uploaded_image:
-        base64_image = encode_image(uploaded_image)
-        content_payload.append({
-            "type": "image_url",
-            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
-        })
-
-    try:
-        response = client.chat.completions.create(
-            model="gpt-4o-mini", 
-            messages=[{"role": "user", "content": content_payload}], 
-            temperature=0.1,
-            response_format={"type": "json_object"}
-        )
-        result = json.loads(response.choices[0].message.content.strip())
+        content_payload = [{"type": "text", "text": prompt}]
         
-        if result.get("grade_to_add"):
-            g = result["grade_to_add"]
-            st.session_state.grades.append({
-                "subject": g.get("subject"), "grade": g.get("grade"),
-                "label": g.get("note_label", "Klausur"), "date": now_str
+        if uploaded_image:
+            base64_image = encode_image(uploaded_image)
+            content_payload.append({
+                "type": "image_url",
+                "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
             })
 
-        if result.get("tasks_to_delete"):
-            st.session_state.tasks = [t for t in st.session_state.tasks if t.get("id") not in result["tasks_to_delete"]]
+        try:
+            response = client.chat.completions.create(
+                model="gpt-4o-mini", 
+                messages=[{"role": "user", "content": content_payload}], 
+                temperature=0.1,
+                response_format={"type": "json_object"}
+            )
+            result = json.loads(response.choices[0].message.content.strip())
             
-        if result.get("tasks_to_add"):
-            for i, t in enumerate(result["tasks_to_add"]):
-                if not any(old.get("title") == t.get("title") and old.get("summary") == t.get("summary") and old.get("termin") == t.get("termin") for old in st.session_state.tasks):
-                    st.session_state.tasks.insert(0, {
-                        "title": t.get("title"), "type": t.get("type", "Lernplan"), "summary": t.get("summary"),
-                        "prioritaet": t.get("prioritaet", "🟡 Mittel"),
-                        "notes": "Automatisch generierter KI-Lernschritt." if t.get("type") == "Lernplan" else input_text,
-                        "termin": t.get("termin"), "erstellt_am": now_str, "id": f"ai_{datetime.utcnow().timestamp()}_{i}_{t.get('title')}"
-                    })
-        
-        display_text = input_text if input_text and input_text.strip() != "" else "📸 [Bild hochgeladen]"
-        st.session_state.messages.append({"role": "user", "content": display_text})
-        st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Daten aktualisiert! 🐊")})
-        
-        save_to_supabase({
-            "tasks": st.session_state.tasks, "messages": st.session_state.messages, 
-            "subjects": st.session_state.subjects, "completed_count": st.session_state.get("completed_count", 0),
-            "grades": st.session_state.grades
-        })
-    except Exception as e: 
-        st.error(f"Schnittstellen Fehler: {e}")
+            if result.get("grade_to_add"):
+                g = result["grade_to_add"]
+                st.session_state.grades.append({
+                    "subject": g.get("subject"), "grade": g.get("grade"),
+                    "label": g.get("note_label", "Klausur"), "date": now_str
+                })
+
+            if result.get("tasks_to_delete"):
+                st.session_state.tasks = [t for t in st.session_state.tasks if t.get("id") not in result["tasks_to_delete"]]
+                
+            if result.get("tasks_to_add"):
+                for i, t in enumerate(result["tasks_to_add"]):
+                    if not any(old.get("title") == t.get("title") and old.get("summary") == t.get("summary") and old.get("termin") == t.get("termin") for old in st.session_state.tasks):
+                        st.session_state.tasks.insert(0, {
+                            "title": t.get("title"), "type": t.get("type", "Lernplan"), "summary": t.get("summary"),
+                            "prioritaet": t.get("prioritaet", "🟡 Mittel"),
+                            "notes": "Automatisch generierter KI-Lernschritt." if t.get("type") == "Lernplan" else input_text,
+                            "termin": t.get("termin"), "erstellt_am": now_str, "id": f"ai_{datetime.utcnow().timestamp()}_{i}_{t.get('title')}"
+                        })
+            
+            display_text = input_text if input_text and input_text.strip() != "" else "📸 [Bild hochgeladen]"
+            st.session_state.messages.append({"role": "user", "content": display_text})
+            st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Daten aktualisiert! 🐊")})
+            
+            save_to_supabase({
+                "tasks": st.session_state.tasks, "messages": st.session_state.messages, 
+                "subjects": st.session_state.subjects, "completed_count": st.session_state.get("completed_count", 0),
+                "grades": st.session_state.grades
+            })
+        except Exception as e: 
+            st.error(f"Schnittstellen Fehler: {e}")
+            
     st.rerun()
 
 # =========================================================================

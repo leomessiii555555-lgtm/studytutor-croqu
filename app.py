@@ -210,6 +210,7 @@ def process_user_input(input_text, uploaded_image=None):
         2. Generiere NIEMALS automatisch ungefragt einen mehrtägigen Lernplan (keine Einträge mit Typ 'Lernplan' oder "Tag 1, Tag 2"-Stufen erzeugen), AUSSER der User verlangt explizit in seiner Nachricht einen Lernplan (z.B. "Erstelle mir einen Lernplan für...").
         3. Der 'summary'-Wert eines Tests/einer Hausaufgabe darf NIEMALS Bezeichnungen wie "Tag X" enthalten! Er muss sauber das Thema oder die Arbeit benennen (z.B. "Deutsch-Test" oder "Schularbeit zu Thema X").
         4. Wenn der User explizit nach Karteikarten (Flashcards) fragt (z.B. "Erstelle Karteikarten zu Thema X"), befüllst du das optionale Array 'flashcards_to_add'.
+           WICHTIG FÜR DIE ANTWORTEN DER KARTEIKARTEN: Die Antworten MÜSSEN extrem einfach, super kurz (maximal 1-2 Sätze) und in einfacher Schülersprache geschrieben sein. Vermeide komplizierte Schachtelsätze oder unnötige Fachwörter!
 
         Antworte AUSSCHLIESSLICH im validen JSON-Format:
         {{
@@ -397,7 +398,6 @@ with st.expander(f"💬 KI-Lerncoach & Mentor (Konto: {st.session_state.user_id}
     
     st.write("---")
     
-    # Textfeld, Mikrofon und Button liegen jetzt gesichert zusammen in EINEM Formular
     with st.form("unified_chat_form", clear_on_submit=True):
         f_col1, f_col2, f_col3 = st.columns([4, 3, 1], vertical_alignment="center")
         with f_col1:
@@ -410,7 +410,6 @@ with st.expander(f"💬 KI-Lerncoach & Mentor (Konto: {st.session_state.user_id}
         if submit_main:
             final_text = chat_text.strip() if chat_text else ""
             
-            # Falls ein Audio aufgenommen wurde, transkribieren wir es direkt im Submit-Moment
             if main_audio is not None:
                 audio_text = transcribe_audio(main_audio)
                 if audio_text:
@@ -583,7 +582,6 @@ with tab_flashcards:
             with q_col1:
                 st.markdown("##### 🤖 Nachfrage zur Antwort")
                 
-                # Auch bei den Karteikarten nutzen wir das vereinte Formular-Layout
                 with st.form(f"card_form_{st.session_state.card_idx}", clear_on_submit=True):
                     fc_col1, fc_col2, fc_col3 = st.columns([4, 3, 1], vertical_alignment="center")
                     with fc_col1:

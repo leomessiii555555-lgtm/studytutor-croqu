@@ -4,6 +4,7 @@ import requests
 import json
 import re
 import base64
+import time
 from datetime import datetime, timedelta
 
 # =========================================================================
@@ -95,6 +96,11 @@ if "available_profiles" not in st.session_state:
 
 if "user_id" not in st.session_state:
     st.session_state.user_id = st.session_state.available_profiles[0]
+
+# Initialisiere zusätzliche Session States für neue Features
+if "xp" not in st.session_state: st.session_state.xp = 0
+if "streak" not in st.session_state: st.session_state.streak = 0
+if "flashcards" not in st.session_state: st.session_state.flashcards = []
 
 # =========================================================================
 # UTILITIES & IMAGE ENCODING
@@ -188,7 +194,7 @@ def process_user_input(input_text, uploaded_image=None):
 
         STRIKTE ZEIT-BASIS (RECHNE EXAKT!):
         Heute ist {weekday_str}, der {now_str}.
-        Wenn der User relative Angaben macht (z.B. "nächsten Dienstag", "in 3 Tagen", "morgen", "am Freitag"), berechne das ZIEL-DATUM ausgehend vom {now_str} mathematisch absolut präzise! Verrechne dich nicht um Tage!
+        Wenn der User relative Angaben macht (z.B. "nächsten Dienstag", "in 3 Tagen", "morgen", "am Freitag"), berechne das ZIEL-DATUM ausgehend vom {now_str} mathematisch absolut präzise! Verrechne dich NIEMALS um Tage!
 
         Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
         Bisherige Noten des Schülers: {json.dumps(grades_context, ensure_ascii=False)}
@@ -200,6 +206,7 @@ def process_user_input(input_text, uploaded_image=None):
         1. Wenn der User einen neuen TEST oder eine HAUSAUFGABE meldet, erstelle AUSSCHLIESSLICH diesen EINEN Eintrag mit Typ 'Test' oder 'Hausaufgabe'.
         2. Generiere NIEMALS automatisch ungefragt einen mehrtägigen Lernplan (keine Einträge mit Typ 'Lernplan' oder "Tag 1, Tag 2"-Stufen erzeugen), AUSSER der User verlangt explizit in seiner Nachricht einen Lernplan (z.B. "Erstelle mir einen Lernplan für...").
         3. Der 'summary'-Wert eines Tests/einer Hausaufgabe darf NIEMALS Bezeichnungen wie "Tag X" enthalten! Er muss sauber das Thema oder die Arbeit benennen (z.B. "Deutsch-Test" oder "Schularbeit zu Thema X").
+        4. Wenn der User explizit nach Karteikarten (Flashcards) fragt (z.B. "Erstelle Karteikarten zu Thema X"), befüllst du das optionale Array 'flashcards_to_add'.
 
         Antworte AUSSCHLIESSLICH im validen JSON-Format:
         {{
@@ -214,7 +221,10 @@ def process_user_input(input_text, uploaded_image=None):
             }}
           ],
           "tasks_to_delete": [],
-          "grade_to_add": {{ "subject": "Fachname", "grade": 4, "note_label": "Schularbeit" }} // optional
+          "grade_to_add": {{ "subject": "Fachname", "grade": 4, "note_label": "Schularbeit" }}, // optional
+          "flashcards_to_add": [ // optional
+            {{ "question": "Frage / Begriff", "answer": "Antwort / Erklärung" }}
+          ]
         }}
         """
 
@@ -255,6 +265,12 @@ def process_user_input(input_text, uploaded_image=None):
                             "notes": "Automatisch generierter KI-Lernschritt." if t.get("type") == "Lernplan" else input_text,
                             "termin": t.get("termin"), "erstellt_am": now_str, "id": f"ai_{datetime.utcnow().timestamp()}_{i}_{t.get('title')}"
                         })
+
+            if result.get("flashcards_to_add"):
+                for fc in result["flashcards_to_add"]:
+                    st.session_state.flashcards.append({
+                        "question": fc.get("question"), "answer": fc.get("answer")
+                    })
             
             display_text = input_text if input_text and input_text.strip() != "" else "📸 [Bild hochgeladen]"
             st.session_state.messages.append({"role": "user", "content": display_text})
@@ -263,7 +279,8 @@ def process_user_input(input_text, uploaded_image=None):
             save_to_supabase({
                 "tasks": st.session_state.tasks, "messages": st.session_state.messages, 
                 "subjects": st.session_state.subjects, "completed_count": st.session_state.get("completed_count", 0),
-                "grades": st.session_state.grades
+                "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak,
+                "flashcards": st.session_state.flashcards
             })
         except Exception as e: 
             st.error(f"Schnittstellen Fehler: {e}")
@@ -281,12 +298,18 @@ if "initialized_user" not in st.session_state or st.session_state.initialized_us
         st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
         st.session_state.completed_count = db_state.get("completed_count", 0)
         st.session_state.grades = db_state.get("grades", [])
+        st.session_state.xp = db_state.get("xp", 0)
+        st.session_state.streak = db_state.get("streak", 0)
+        st.session_state.flashcards = db_state.get("flashcards", [])
     else:
         st.session_state.tasks = []
         st.session_state.messages = [{"role": "assistant", "content": f"Hi {st.session_state.user_id}! 🐊 Ich bin dein intelligenter Mentor. Schick mir deine Noten, sprich mit mir oder fotografiere deinen Lernstoff!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
         st.session_state.completed_count = 0
         st.session_state.grades = []
+        st.session_state.xp = 0
+        st.session_state.streak = 0
+        st.session_state.flashcards = []
     st.session_state.initialized_user = st.session_state.user_id
 
 # =========================================================================
@@ -294,6 +317,15 @@ if "initialized_user" not in st.session_state or st.session_state.initialized_us
 # =========================================================================
 with st.sidebar:
     st.title("StudyTutor Pro 🐊")
+    st.write("---")
+    
+    # KROKO-GAMIFICATION VISUALISIERUNG
+    st.subheader("🐊 Deine Kroko-Stats")
+    level = (st.session_state.xp // 100) + 1
+    xp_in_level = st.session_state.xp % 100
+    st.write(f"**Level {level}** ({xp_in_level}/100 XP)")
+    st.progress(xp_in_level / 100)
+    st.write(f"🔥 **Lern-Streak:** {st.session_state.streak} Tage am Stück")
     st.write("---")
     
     st.subheader("👥 Profil auswählen")
@@ -350,8 +382,11 @@ with st.sidebar:
         st.session_state.tasks = []
         st.session_state.completed_count = 0
         st.session_state.grades = []
+        st.session_state.xp = 0
+        st.session_state.streak = 0
+        st.session_state.flashcards = []
         st.session_state.messages = [{"role": "assistant", "content": "Zurückgesetzt."}]
-        save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": 0, "grades": []})
+        save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": 0, "grades": [], "xp": 0, "streak": 0, "flashcards": []})
         st.rerun()
 
 # =========================================================================
@@ -378,70 +413,169 @@ with stat_col3:
 with stat_col4:
     st.html(f"<div class='stat-card'><div class='stat-val' style='color:#3b82f6;'>{st.session_state.completed_count} ✅</div><div class='stat-lbl'>ERLEDIGT</div></div>")
 
-# NOTENSPIEGEL
+# AUTOMATISCHER SCHWACHSTELLEN-WARNER
+critical_subjects = []
+for g in st.session_state.grades:
+    if g.get('grade', 0) >= 4:
+        sub = g.get('subject')
+        has_active_task = any(t.get('title') == sub for t in st.session_state.tasks)
+        if not has_active_task and sub not in critical_subjects:
+            critical_subjects.append(sub)
+if critical_subjects:
+    for cs in critical_subjects:
+        st.warning(f"⚠️ **Kroko-Warnung:** Deine Note in **{cs}** steht kritisch, aber du hast aktuell keine Lernschritte auf deinem Board! Frage den Coach nach einem Lernplan.")
+
+# NOTENSPIEGEL & EIGENES OPTIONEN-FENSTER (POPOVER)
 if st.session_state.grades:
     st.write(f"### 📝 Aktueller Notenspiegel von {st.session_state.user_id}")
+    
+    # Neues dediziertes Overlay-Fenster für erweiterte Notenübersichten und Zielrechner
+    with st.popover("📊 Erweiterte Noten-Analyse & Zielrechner öffnen", use_container_width=True):
+        st.markdown("### 📊 Alle Schularbeitsnoten im Überblick")
+        sub_grades = {}
+        for g in st.session_state.grades:
+            sub_grades.setdefault(g['subject'], []).append(g['grade'])
+            
+        st.markdown("#### 📈 Aktuelle Fach-Durchschnitte:")
+        for sub, g_list in sub_grades.items():
+            avg = sum(g_list) / len(g_list)
+            st.write(f"- **{sub}**: Schnitt {avg:.2f} (Basis: {len(g_list)} Noten)")
+            
+        st.write("---")
+        st.markdown("#### 🎯 Wunschnoten-Rechner")
+        calc_sub = st.selectbox("Wähle ein Fach zum Berechnen:", options=list(sub_grades.keys()))
+        target_grade = st.slider("Dein Wunsch-Schnitt für dieses Fach:", 1.0, 5.0, 2.0, 0.1)
+        if calc_sub:
+            c_sum = sum(sub_grades[calc_sub])
+            c_count = len(sub_grades[calc_sub])
+            needed = target_grade * (c_count + 1) - c_sum
+            st.write(f"Um in **{calc_sub}** auf einen Schnitt von **{target_grade:.1f}** zu kommen, benötigst du in der nächsten Arbeit eine:")
+            if needed < 1.0: st.success("Mathematisch bereits abgesichert oder besser als eine 1! 🎉")
+            elif needed > 5.0: st.error(f"Nicht mit einer einzigen Arbeit schaffbar (Benötigt: {needed:.1f}). Mach mehr Teilschritte!")
+            else: st.info(f"👉 **Note {needed:.1f}** oder besser.")
+
     grade_html = ""
     for g in st.session_state.grades:
         color = "#10b981" if g['grade'] <= 2 else ("#f59e0b" if g['grade'] == 3 else "#ef4444")
         grade_html += f"<div class='grade-badge' style='border-left: 4px solid {color};'><b>{g['subject']}</b>: Note {g['grade']} <span style='font-size:0.75rem; color:#64748b;'>({g['label']})</span></div>"
     st.html(f"<div>{grade_html}</div>")
 
-# Sniper-Fokus Box
+# Sniper-Fokus Box + LIVE POMODORO-TIMER
 if selected_focus_id:
     focus_task = next((t for t in st.session_state.tasks if t['id'] == selected_focus_id), None)
     if focus_task:
         st.html(f"<div class='focus-box'><div style='font-size: 0.85rem; font-weight: 700; color: #c084fc; margin-bottom: 4px;'>🎯 AKTUELLER REINZOOM-FOKUS</div><div style='font-size: 1.6rem; font-weight: 700; margin-bottom: 4px;'>{focus_task['title']} — {focus_task['summary']}</div><div>Fällig am: {focus_task.get('termin')} | Prio: {focus_task.get('prioritaet')}</div></div>")
+        
+        # Pomodoro Einbindung direkt in das Widget
+        p_col1, p_col2 = st.columns([1, 2])
+        with p_col1:
+            st.write("⏱️ **Live Pomodoro**")
+            pomo_mins = st.number_input("Fokus-Dauer (Min):", 1, 60, 25)
+            if st.button("🚀 Timer starten", use_container_width=True):
+                progress_bar = st.progress(0.0)
+                status_text = st.empty()
+                total_s = pomo_mins * 60
+                for s in range(total_s, -1, -1):
+                    m, sec = divmod(s, 60)
+                    status_text.write(f"⏳ **Fokuszeit läuft:** {m:02d}:{sec:02d}")
+                    progress_bar.progress((total_s - s) / total_s)
+                    time.sleep(1)
+                status_text.write("🎉 **Sitzung beendet! Zeit für eine Pause!** 🐊")
+                st.balloons()
 
 # Filterung anwenden
 active_tasks = st.session_state.tasks if filter_subject == "Alle Fächer" else [t for t in st.session_state.tasks if t.get("title") == filter_subject]
 
 # =========================================================================
-# LIVE DASHBOARD DISPLAY
+# REITER SYSTEM FÜR DAS INTERAKTIVE BOARD & KI KARTEIKARTEN
 # =========================================================================
-st.write(f"### 📊 Workspace von {st.session_state.user_id} ({filter_subject})")
-col1, col2, col3 = st.columns(3)
+st.write(f"### Workspace von {st.session_state.user_id} ({filter_subject})")
+tab_dashboard, tab_flashcards = st.tabs(["📊 Workspace-Board", "🃏 KI-Karteikarten Deck"])
 
-with col1:
-    st.html("<div class='column-header'><span style='color: #ef4444;'>🔴</span> Tests & Arbeiten</div>")
-    tests = [t for t in active_tasks if t.get("type") == "Test"]
-    if not tests: st.caption("Keine Tests geplant. 🎉")
-    for t in tests:
-        days_left = get_days_left_string(t.get('termin'))
-        countdown = f"<div class='countdown-badge'>{days_left}</div>" if days_left else ""
-        st.html(f"<div class='task-card' style='border-left-color: #ef4444;'><div class='card-info-line'>📅 {t.get('termin')} | {t.get('prioritaet')}</div><div class='card-title'>{t['title']}</div><div class='card-summary'>{t['summary']}</div>{countdown}</div>")
-        if st.button("✅ Erledigt", key=f"del_{t['id']}", use_container_width=True):
-            st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != t['id']]
-            st.session_state.completed_count += 1
-            save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades})
-            st.rerun()
+with tab_dashboard:
+    col1, col2, col3 = st.columns(3)
 
-with col2:
-    st.html("<div class='column-header'><span style='color: #f59e0b;'>🟡</span> Diese & Nächste Woche</div>")
-    upcoming = [t for t in active_tasks if t.get("type") in ["Hausaufgabe", "Test"] and is_within_next_fortnight(t.get("termin", ""))]
-    if not upcoming: st.caption("Alles erledigt! 😎")
-    for w in upcoming:
-        is_test = w.get("type") == "Test"
-        card_color = "#ef4444" if is_test else "#f59e0b"
-        days_left = get_days_left_string(w.get('termin'))
-        countdown = f"<div class='countdown-badge'>{days_left}</div>" if days_left else ""
-        st.html(f"<div class='task-card' style='border-left-color: {card_color};'><div class='card-info-line' style='color:#b45309; background:#fef3c7;'>📅 {w.get('termin')} | {w.get('prioritaet')}</div><div class='card-title'>{w['title']}</div><div class='card-summary'>{w['summary']}</div>{countdown}</div>")
-        if st.button("✅ Erledigt", key=f"del_up_{w['id']}", use_container_width=True):
-            st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != w['id']]
-            st.session_state.completed_count += 1
-            save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades})
-            st.rerun()
+    with col1:
+        st.html("<div class='column-header'><span style='color: #ef4444;'>🔴</span> Tests & Arbeiten</div>")
+        tests = [t for t in active_tasks if t.get("type") == "Test"]
+        if not tests: st.caption("Keine Tests geplant. 🎉")
+        for t in tests:
+            days_left = get_days_left_string(t.get('termin'))
+            countdown = f"<div class='countdown-badge'>{days_left}</div>" if days_left else ""
+            st.html(f"<div class='task-card' style='border-left-color: #ef4444;'><div class='card-info-line'>📅 {t.get('termin')} | {t.get('prioritaet')}</div><div class='card-title'>{t['title']}</div><div class='card-summary'>{t['summary']}</div>{countdown}</div>")
+            if st.button("✅ Erledigt", key=f"del_{t['id']}", use_container_width=True):
+                st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != t['id']]
+                st.session_state.completed_count += 1
+                st.session_state.xp += 20
+                if st.session_state.streak == 0: st.session_state.streak = 1
+                save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak, "flashcards": st.session_state.flashcards})
+                st.rerun()
 
-with col3:
-    st.html("<div class='column-header'><span style='color: #10b981;'>🟢</span> Aktivierter Lernplan</div>")
-    plan = [t for t in active_tasks if t.get("type") == "Lernplan"]
-    if not plan: st.caption("Kein aktiver Lernplan.")
-    for p in plan:
-        days_left = get_days_left_string(p.get('termin'))
-        countdown = f"<div class='countdown-badge'>{days_left}</div>" if days_left else ""
-        st.html(f"<div class='task-card' style='border-left-color: #10b981;'><div class='card-info-line' style='color:#047857; background:#d1fae5;'>📅 Bis {p.get('termin')} | {p.get('prioritaet')}</div><div class='card-title'>{p['title']}</div><div class='card-summary'>{p['summary']}</div>{countdown}</div>")
-        if st.button("✅ Schritt erledigt", key=f"del_p_{p['id']}", use_container_width=True):
-            st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != p['id']]
-            st.session_state.completed_count += 1
-            save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades})
-            st.rerun()
+    with col2:
+        st.html("<div class='column-header'><span style='color: #f59e0b;'>🟡</span> Diese & Nächste Woche</div>")
+        upcoming = [t for t in active_tasks if t.get("type") in ["Hausaufgabe", "Test"] and is_within_next_fortnight(t.get("termin", ""))]
+        if not upcoming: st.caption("Alles erledigt! 😎")
+        for w in upcoming:
+            is_test = w.get("type") == "Test"
+            card_color = "#ef4444" if is_test else "#f59e0b"
+            days_left = get_days_left_string(w.get('termin'))
+            countdown = f"<div class='countdown-badge'>{days_left}</div>" if days_left else ""
+            st.html(f"<div class='task-card' style='border-left-color: {card_color};'><div class='card-info-line' style='color:#b45309; background:#fef3c7;'>📅 {w.get('termin')} | {w.get('prioritaet')}</div><div class='card-title'>{w['title']}</div><div class='card-summary'>{w['summary']}</div>{countdown}</div>")
+            if st.button("✅ Erledigt", key=f"del_up_{w['id']}", use_container_width=True):
+                st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != w['id']]
+                st.session_state.completed_count += 1
+                st.session_state.xp += 10
+                if st.session_state.streak == 0: st.session_state.streak = 1
+                save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak, "flashcards": st.session_state.flashcards})
+                st.rerun()
+
+    with col3:
+        st.html("<div class='column-header'><span style='color: #10b981;'>🟢</span> Aktivierter Lernplan</div>")
+        plan = [t for t in active_tasks if t.get("type") == "Lernplan"]
+        if not plan: st.caption("Kein aktiver Lernplan.")
+        for p in plan:
+            days_left = get_days_left_string(p.get('termin'))
+            countdown = f"<div class='countdown-badge'>{days_left}</div>" if days_left else ""
+            st.html(f"<div class='task-card' style='border-left-color: #10b981;'><div class='card-info-line' style='color:#047857; background:#d1fae5;'>📅 Bis {p.get('termin')} | {p.get('prioritaet')}</div><div class='card-title'>{p['title']}</div><div class='card-summary'>{p['summary']}</div>{countdown}</div>")
+            if st.button("✅ Schritt erledigt", key=f"del_p_{p['id']}", use_container_width=True):
+                st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != p['id']]
+                st.session_state.completed_count += 1
+                st.session_state.xp += 10
+                if st.session_state.streak == 0: st.session_state.streak = 1
+                save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak, "flashcards": st.session_state.flashcards})
+                st.rerun()
+
+# 🃏 KI CARTEIKARTEN REITER (FLASHCARDS VISUALISIERUNG)
+with tab_flashcards:
+    st.write("### 🃏 Deine interaktiven KI-Karteikarten")
+    st.caption("Schreibe dem KI-Coach einfach im Chat 'Erstelle mir Karteikarten für das Thema X', um neue Karten hinzuzufügen!")
+    
+    if not st.session_state.flashcards:
+        st.info("Aktuell sind noch keine Karteikarten generiert worden.")
+    else:
+        if "card_idx" not in st.session_state: st.session_state.card_idx = 0
+        st.session_state.card_idx = max(0, min(st.session_state.card_idx, len(st.session_state.flashcards) - 1))
+        
+        card = st.session_state.flashcards[st.session_state.card_idx]
+        st.write(f"**Karteikarte {st.session_state.card_idx + 1} von {len(st.session_state.flashcards)}**")
+        
+        flip = st.checkbox("🔄 Karte umdrehen (Antwort zeigen)", key=f"flip_card_{st.session_state.card_idx}")
+        if not flip:
+            st.info(f"❓ **FRAGE / BEGRIFF:**\n\n{card['question']}")
+        else:
+            st.success(f"💡 **ANTWORT / ERKLÄRUNG:**\n\n{card['answer']}")
+            
+        c_col1, c_col2, c_col3 = st.columns([1, 1, 2])
+        with c_col1:
+            if st.button("⬅️ Zurück", use_container_width=True) and st.session_state.card_idx > 0:
+                st.session_state.card_idx -= 1
+                st.rerun()
+        with c_col2:
+            if st.button("Weiter ➡️", use_container_width=True) and st.session_state.card_idx < len(st.session_state.flashcards) - 1:
+                st.session_state.card_idx += 1
+                st.rerun()
+        with c_col3:
+            if st.button("🗑️ Karteikarte löschen", use_container_width=True):
+                st.session_state.flashcards.pop(st.session_state.card_idx)
+                save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak, "flashcards": st.session_state.flashcards})
+                st.rerun()

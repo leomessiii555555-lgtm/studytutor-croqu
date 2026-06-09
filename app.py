@@ -78,7 +78,6 @@ st.html("""
 # GLOBAL PROFIL MANAGEMENT & KONTEN-ABRUF
 # =========================================================================
 def get_all_registered_profiles():
-    """Holt alle existierenden IDs aus der Supabase-Tabelle, damit wir sie im Dropdown listen können."""
     headers = {"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"}
     url = f"{SUPABASE_URL}/rest/v1/studytutor_data?select=id"
     try:
@@ -91,7 +90,6 @@ def get_all_registered_profiles():
     except Exception: pass
     return ["Alex"]
 
-# Initialisiere Profilliste in der Session
 if "available_profiles" not in st.session_state:
     st.session_state.available_profiles = get_all_registered_profiles()
 
@@ -195,10 +193,10 @@ def process_user_input(input_text, uploaded_image=None):
 
     User-Nachricht: "{input_text}"
 
-    STRIKTE TRENNUNGS-REGELN FÜR DIE STRUKTUR:
-    1. Wenn der User einen neuen TEST oder eine HAUSAUFGABEN meldet, erstelle EINEN Eintrag mit Typ 'Test' oder 'Hausaufgabe'. Der 'summary'-Wert dieses Eintrags darf NIEMALS Bezeichnungen wie "Tag X" enthalten! Er muss sauber den Test benennen (z.B. "Deutsch-Test" oder "Schularbeit zu Thema X").
-    2. Generiere zusätzlich für jeden angekündigten Test AUTOMATISCH einen mehrtägigen Lernplan (verteilt auf die Tage VOR dem Test). Jeder dieser Vorbereitungsschritte kommt als EIGENER Eintrag in die Liste mit Typ 'Lernplan'. NUR hier im Typ 'Lernplan' verwendest du Bezeichnungen wie "Tag 1: Grundlagen wiederholen", "Tag 2: Textverständnis" etc.
-    3. Wenn der User eine Note meldet (z.B. eine 4 oder 5), speichere diese im Feld 'grade_to_add' und generiere ebenfalls einen mehrtägigen Lernplan (Typ 'Lernplan') zur Notenverbesserung.
+    STRIKTE REGELN FÜR DIE STRUKTUR (KEINE AUTOMATISCHEN LERNPLÄNE MEHR):
+    1. Wenn der User einen neuen TEST oder eine HAUSAUFGABE meldet, erstelle AUSSCHLIESSLICH diesen EINEN Eintrag mit Typ 'Test' oder 'Hausaufgabe'.
+    2. Generiere NIEMALS automatisch ungefragt einen mehrtägigen Lernplan (keine Einträge mit Typ 'Lernplan' oder "Tag 1, Tag 2"-Stufen erzeugen), AUSSER der User verlangt explizit in seiner Nachricht einen Lernplan (z.B. "Erstelle mir einen Lernplan für...").
+    3. Der 'summary'-Wert eines Tests/einer Hausaufgabe darf NIEMALS Bezeichnungen wie "Tag X" enthalten! Er muss sauber das Thema oder die Arbeit benennen (z.B. "Deutsch-Test" oder "Schularbeit zu Thema X").
 
     Antworte AUSSCHLIESSLICH im validen JSON-Format:
     {{
@@ -207,7 +205,7 @@ def process_user_input(input_text, uploaded_image=None):
         {{
           "title": "Fachname (MUSS exakt aus der Liste sein)",
           "type": "Test" oder "Hausaufgabe" oder "Lernplan",
-          "summary": "Sauberer Titel (NUR bei Typ Lernplan mit 'Tag X:' beginnen!)",
+          "summary": "Sauberer Titel (NUR falls explizit gewünscht mit 'Tag X:' beginnen!)",
           "prioritaet": "🚨 Hoch" oder "🟡 Mittel" oder "🟢 Niedrig",
           "termin": "DD.MM.YYYY"
         }}
@@ -294,26 +292,17 @@ with st.sidebar:
     st.title("StudyTutor Pro 🐊")
     st.write("---")
     
-    # INTERAKTIVES MULTI-PROFIL MANAGEMENT
     st.subheader("👥 Profil auswählen")
-    
-    # Finde den aktuellen Index des Profils in der Liste für Streamlit
     try:
         current_index = st.session_state.available_profiles.index(st.session_state.user_id)
     except ValueError:
         current_index = 0
         
-    selected_user = st.selectbox(
-        "Wer lernt gerade?", 
-        options=st.session_state.available_profiles, 
-        index=current_index
-    )
-    
+    selected_user = st.selectbox("Wer lernt gerade?", options=st.session_state.available_profiles, index=current_index)
     if selected_user != st.session_state.user_id:
         st.session_state.user_id = selected_user
         st.rerun()
         
-    # Neues Profil hinzufügen Expander direkt auf der Seite
     with st.expander("➕ Neues Profil anlegen"):
         new_profile_name = st.text_input("Name eingeben:", key="new_profile_input_field")
         if st.button("Konto erstellen", use_container_width=True):

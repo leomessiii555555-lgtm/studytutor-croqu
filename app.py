@@ -183,6 +183,10 @@ def transcribe_audio(audio_file):
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
 
+    # Entferne temporär geladene Audio-Felder, um Mehrfach-Auslösung zu verhindern
+    if "main_audio_widget" in st.session_state:
+        del st.session_state["main_audio_widget"]
+
     with st.spinner("Überlege... 🐊"):
         now = datetime.now()
         now_str = now.strftime("%d.%m.%Y")
@@ -291,6 +295,35 @@ def process_user_input(input_text, uploaded_image=None):
     st.rerun()
 
 # =========================================================================
+# REALTIME AUDIO-CALLBACK HANDLING (NATIVE INTEGRATION)
+# =========================================================================
+def on_main_audio_change():
+    if st.session_state.get("main_audio_widget"):
+        audio_data = st.session_state.main_audio_widget
+        text_from_speech = transcribe_audio(audio_data)
+        if text_from_speech:
+            process_user_input(text_from_speech)
+
+def on_card_audio_change(card_question, card_answer):
+    key = f"card_audio_widget_{st.session_state.card_idx}"
+    if st.session_state.get(key):
+        audio_data = st.session_state[key]
+        text_from_speech = transcribe_audio(audio_data)
+        if text_from_speech:
+            try:
+                q_response = client.chat.completions.create(
+                    model="gpt-4o-mini",
+                    messages=[
+                        {"role": "system", "content": "Du bist ein kompakter Lerncoach. Beantworte die Schülerfrage zu dieser Karteikarten-Antwort extrem kurz, präzise, verständlich und ohne Begrüßungsfloskeln."},
+                        {"role": "user", "content": f"Karteikarten-Frage: {card_question}\nKarteikarten-Antwort: {card_answer}\nSchüler-Nachfrage dazu: {text_from_speech}"}
+                    ],
+                    temperature=0.3
+                )
+                st.session_state.card_ki_response = q_response.choices[0].message.content.strip()
+            except Exception as e:
+                st.session_state.card_ki_response = f"Fehler bei der Audio-Anfrage: {e}"
+
+# =========================================================================
 # ACCOUNT-SPEZIFISCHE LIVE-INITIALISIERUNG
 # =========================================================================
 if "initialized_user" not in st.session_state or st.session_state.initialized_user != st.session_state.user_id:
@@ -371,13 +404,6 @@ with st.sidebar:
     filter_subject = st.selectbox("Fach auswählen:", ["Alle Fächer"] + st.session_state.subjects)
     st.write("---")
 
-    st.subheader("🎙️ Sprachbefehl")
-    audio_file = st.audio_input("Sprachnachricht aufnehmen:")
-    if audio_file and st.button("🚀 Sprache senden", use_container_width=True):
-        text_from_speech = transcribe_audio(audio_file)
-        if text_from_speech: process_user_input(text_from_speech)
-    st.write("---")
-
     st.subheader("📸 Lernstoff einsenden")
     uploaded_img = st.file_uploader("Bild/Angabe hochladen:", type=["jpg", "jpeg", "png"])
     if uploaded_img and st.button("🚀 Bild abschicken", use_container_width=True):
@@ -399,15 +425,24 @@ with st.sidebar:
         st.rerun()
 
 # =========================================================================
-# MAIN CHAT
+# MAIN CHAT (GEMINI-STYLE INTEGRATED INPUT BAR)
 # =========================================================================
 with st.expander(f"💬 KI-Lerncoach & Mentor (Konto: {st.session_state.user_id})", expanded=True):
     for msg in st.session_state.messages[-3:]:
         with st.chat_message(msg["role"]): st.write(msg["content"])
     
-    chat_text = st.chat_input("Schreib mir oder nutze das Mikrofon/die Kamera links...")
-    if chat_text:
-        process_user_input(chat_text, uploaded_img)
+    st.write("---")
+    # Das hochentwickelte, horizontal verschmolzene Input-System
+    m_col1, m_col2, m_col3 = st.columns([5, 2, 1], vertical_alignment="center")
+    with m_col1:
+        chat_text = st.text_input("Schreib mir...", label_visibility="collapsed", placeholder="Frag das Krokodil oder nutze das Mikrofon...", key="main_text_input")
+    with m_col2:
+        st.audio_input("Mikrofon", label_visibility="collapsed", key="main_audio_widget", on_change=on_main_audio_change)
+    with m_col3:
+        submit_main = st.button("🚀", use_container_width=True, key="submit_main_text")
+        
+    if (submit_main or chat_text) and chat_text.strip() != "":
+        process_user_input(chat_text)
 
 # =========================================================================
 # LIVE DASHBOARD STATS
@@ -560,49 +595,53 @@ with tab_flashcards:
     if not st.session_state.flashcards:
         st.info("Aktuell sind noch keine Karteikarten generiert worden.")
     else:
-        # Index-Absicherung
         st.session_state.card_idx = max(0, min(st.session_state.card_idx, len(st.session_state.flashcards) - 1))
         card = st.session_state.flashcards[st.session_state.card_idx]
         
         st.write(f"**Karteikarte {st.session_state.card_idx + 1} von {len(st.session_state.flashcards)}**")
         
-        # Visuelle Anzeige Vorder- / Rückseite
         if not st.session_state.card_flipped:
             st.info(f"❓ **FRAGE / BEGRIFF:**\n\n{card['question']}")
         else:
             st.success(f"💡 **ANTWORT / ERKLÄRUNG:**\n\n{card['answer']}")
             
-            # INTEGRATION: Minimalistisches KI-Nachfrage-System direkt unter der Antwort
             st.write("---")
             q_col1, q_col2 = st.columns([1, 1])
             with q_col1:
                 st.markdown("##### 🤖 Nachfrage zur Antwort")
-                user_card_q = st.text_input("Verstehst du etwas nicht? Frag das Krokodil direkt:", key=f"card_q_field_{st.session_state.card_idx}")
-                if st.button("🚀 Nachfrage absenden", use_container_width=True, key=f"btn_card_q_{st.session_state.card_idx}"):
-                    if user_card_q.strip():
-                        with st.spinner("Kroko überlegt... 🐊"):
-                            try:
-                                q_response = client.chat.completions.create(
-                                    model="gpt-4o-mini",
-                                    messages=[
-                                        {"role": "system", "content": "Du bist ein kompakter Lerncoach. Beantworte die Schülerfrage zu dieser Karteikarten-Antwort extrem kurz, präzise, verständlich und ohne Begrüßungsfloskeln."},
-                                        {"role": "user", "content": f"Karteikarten-Frage: {card['question']}\nKarteikarten-Antwort: {card['answer']}\nSchüler-Nachfrage dazu: {user_card_q}"}
-                                    ],
-                                    temperature=0.3
-                                )
-                                st.session_state.card_ki_response = q_response.choices[0].message.content.strip()
-                            except Exception as e:
-                                st.session_state.card_ki_response = f"Fehler bei der Anfrage: {e}"
-                        st.rerun()
+                
+                # Verschmolzene Inline-Leiste für Text & Audio bei den Karteikarten
+                fc_i_col1, fc_i_col2, fc_i_col3 = st.columns([5, 3, 1], vertical_alignment="center")
+                with fc_i_col1:
+                    user_card_q = st.text_input("Frag das Krokodil direkt:", label_visibility="collapsed", placeholder="Verstehst du etwas nicht?", key=f"card_q_field_{st.session_state.card_idx}")
+                with fc_i_col2:
+                    st.audio_input("Mikrofon", label_visibility="collapsed", key=f"card_audio_widget_{st.session_state.card_idx}", on_change=on_card_audio_change, args=(card['question'], card['answer']))
+                with fc_i_col3:
+                    submit_card = st.button("🚀", key=f"btn_card_q_{st.session_state.card_idx}", use_container_width=True)
+                
+                if (submit_card or user_card_q) and user_card_q.strip():
+                    with st.spinner("Kroko überlegt... 🐊"):
+                        try:
+                            q_response = client.chat.completions.create(
+                                model="gpt-4o-mini",
+                                messages=[
+                                    {"role": "system", "content": "Du bist ein kompakter Lerncoach. Beantworte die Schülerfrage zu dieser Karteikarten-Antwort extrem kurz, präzise, verständlich und ohne Begrüßungsfloskeln."},
+                                    {"role": "user", "content": f"Karteikarten-Frage: {card['question']}\nKarteikarten-Antwort: {card['answer']}\nSchüler-Nachfrage dazu: {user_card_q}"}
+                                ],
+                                temperature=0.3
+                            )
+                            st.session_state.card_ki_response = q_response.choices[0].message.content.strip()
+                        except Exception as e:
+                            st.session_state.card_ki_response = f"Fehler bei der Anfrage: {e}"
+                    st.rerun()
             with q_col2:
                 st.markdown("##### 🐊 Krokos Blitz-Erklärung")
                 if st.session_state.card_ki_response:
                     st.info(st.session_state.card_ki_response)
                 else:
-                    st.caption("Stelle links eine Frage zu dieser Karte, um hier eine blitzschnelle Erklärung zu erhalten.")
+                    st.caption("Stelle links eine Frage (Tippen oder Sprechen), um hier eine blitzschnelle Erklärung zu erhalten.")
         
         st.write("---")
-        # Das neue Button-Layout: Zentraler, großer Umdreh-Button zwischen Zurück und Weiter
         c_col1, c_col2, c_col3, c_col4 = st.columns([1, 2, 1, 1])
         with c_col1:
             if st.button("⬅️ Zurück", use_container_width=True) and st.session_state.card_idx > 0:

@@ -11,7 +11,6 @@ OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 SUPABASE_URL = st.secrets["SUPABASE_URL"]
 SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 
-# Globaler OpenAI Client für bessere Performance
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
 USER_ID = "alex_soldat"
@@ -86,7 +85,7 @@ def load_from_supabase():
         if response.status_code == 200 and response.json():
             return response.json()[0].get('app_state')
     except Exception as e:
-        st.sidebar.error(f"Fehler beim Laden der Daten: {e}")
+        st.sidebar.error(f"Fehler beim Laden: {e}")
     return None
 
 def save_to_supabase(state_data):
@@ -97,7 +96,7 @@ def save_to_supabase(state_data):
     try: 
         requests.post(url, headers=headers, json=payload)
     except Exception as e:
-        st.error(f"Fehler beim Speichern der Daten: {e}")
+        st.error(f"Fehler beim Speichern: {e}")
 
 def transcribe_audio(audio_file):
     try:
@@ -116,14 +115,14 @@ def extract_tasks_with_thinking(text, subjects_list):
         
         STRIKTE REGELN FÜR DIE SORTIERUNG:
         1. Wenn 'Test', 'Arbeit', 'Prüfung', 'Klausur' vorkommt -> Typ MUSS "Test" sein.
-        2. Wenn KEIN Test vorkommt, aber 'nächste Woche' oder 'Hausaufgabe' -> Typ ist "Nächste Woche".
-        3. Wenn es ein 'Lernplan' ist -> Typ ist "Lernplan".
+        2. Wenn es ein 'Lernplan' ist -> Typ ist "Lernplan".
+        3. Ansonsten -> Typ ist "Hausaufgabe".
         
-        Zusätzlich musst du genau heraushören, WANN das Ereignis stattfindet (z.B. "Dienstag", "nächste Woche", "Mittwoch"). Trage das exakt in das Feld "zeitpunkt" ein.
+        Zusätzlich musst du genau heraushören, WANN das Ereignis stattfindet (z.B. "Dienstag", "übermorgen", "nächste Woche"). Trage das exakt in das Feld "zeitpunkt" ein.
         
         Antworte NUR mit einer JSON-Liste von Objekten:
         [
-          {{"title": "Fachname", "type": "Test" oder "Nächste Woche" oder "Lernplan", "summary": "Kurztitel", "zeitpunkt": "z.B. Dienstag oder nächste Woche"}}
+          {{"title": "Fachname", "type": "Test" oder "Hausaufgabe" oder "Lernplan", "summary": "Kurztitel", "zeitpunkt": "z.B. Mittwoch"}}
         ]
         Text: "{text}" """
         
@@ -139,7 +138,7 @@ def extract_tasks_with_thinking(text, subjects_list):
             
             tasks.append({
                 "title": item.get("title", "Allgemein"),
-                "type": item.get("type", "Nächste Woche"),
+                "type": item.get("type", "Hausaufgabe"),
                 "summary": item.get("summary", "Neue Aufgabe"),
                 "notes": text,
                 "termin": echtes_datum, 
@@ -148,10 +147,9 @@ def extract_tasks_with_thinking(text, subjects_list):
             })
         return tasks
     except Exception as e: 
-        st.error(f"Fehler bei der KI-Extraktion: {e}")
+        st.error(f"Fehler bei KI-Extraktion: {e}")
         return []
 
-# ZENTRALE INPUT-VERARBEITUNG (Behebt doppelten Code für Text & Audio)
 def process_user_input(input_text):
     if not input_text or input_text.strip().lower() in ["you", "you.", ""]:
         return
@@ -175,7 +173,7 @@ def process_user_input(input_text):
         st.session_state.messages.append({"role": "assistant", "content": response.choices[0].message.content})
         save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
     except Exception as e: 
-        st.error(f"Fehler bei KI-Bestätigung: {e}")
+        st.error(f"Fehler bei KI-Antwort: {e}")
         
     st.rerun()
 
@@ -190,18 +188,18 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Dein fehlerfreies Board mit Live-Terminen steht!"}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Dein Board mit Live-Terminen steht!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
-# AUDIO INPUT SIDEBAR
+# AUDIO INPUT
 audio_file = st.sidebar.audio_input("🎙️ Sprachbefehl aufnehmen", key="main_audio_input")
 if audio_file and st.sidebar.button("🚀 Sprachnachricht senden", use_container_width=True):
     text_from_speech = transcribe_audio(audio_file)
     if text_from_speech:
         process_user_input(text_from_speech)
 
-# SIDEBAR NAVIGATION & FÄCHER-ANZEIGE
+# SIDEBAR
 with st.sidebar:
     st.title("StudyTutor 🐊")
     st.write("---")
@@ -216,7 +214,7 @@ with st.sidebar:
         save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects})
         st.rerun()
 
-# MAIN WORKSPACE - CHAT
+# CHAT
 with st.expander("💬 KI-Lerncoach Chatverlauf", expanded=True):
     for msg in st.session_state.messages[-3:]:
         with st.chat_message(msg["role"]): 
@@ -226,12 +224,12 @@ with st.expander("💬 KI-Lerncoach Chatverlauf", expanded=True):
         process_user_input(text_input)
 
 # =========================================================================
-# KANBAN BOARD / WORKSPACE DISPLAY
+# LIVE WORKSPACE (OPTIMIERTES SORTIERSYSTEM)
 # =========================================================================
 st.write("### 📊 Mein aktueller Workspace")
 col1, col2, col3 = st.columns(3)
 
-# SPALTE 1: TESTS & ARBEITEN
+# SPALTE 1: TESTS & ARBEITEN (Bleibt eine feste Übersicht für alle Arbeiten)
 with col1:
     st.html("<div class='column-header'><span style='color: #ef4444;'>🔴</span> Tests & Arbeiten</div>")
     tests = [t for t in st.session_state.tasks if t.get("type") == "Test"]
@@ -245,35 +243,32 @@ with col1:
             <div class='card-date'>Notiert am: {t.get('erstellt_am')}</div>
         </div>
         """)
-        with st.popover("Originaltext zeigen", use_container_width=True):
-            st.info(t["notes"])
+        with st.popover("Originaltext", use_container_width=True): st.info(t["notes"])
 
-# SPALTE 2: NÄCHSTE WOCHE (Zeigt normale Aufgaben UND Tests für nächste Woche an!)
+# SPALTE 2: TIMELINE (Zeigt chronologisch Aufgaben & Tests nach Datum an!)
 with col2:
-    st.html("<div class='column-header'><span style='color: #f59e0b;'>🟡</span> Nächste Woche</div>")
+    st.html("<div class='column-header'><span style='color: #f59e0b;'>🟡</span> Diese & Nächste Woche</div>")
     
-    # Filtert alles, was den Typ "Nächste Woche" hat ODER wo das berechnete Datum "nächst" enthält
-    next_week = [
-        t for t in st.session_state.tasks 
-        if t.get("type") == "Nächste Woche" or "nächst" in str(t.get("termin", "")).lower()
-    ]
+    # Sortiert alle Aufgaben & Tests. Einträge mit "Diesen" (aktuelle Woche) rutschen automatisch nach oben
+    all_current_tasks = [t for t in st.session_state.tasks if t.get("type") in ["Hausaufgabe", "Test"]]
+    all_current_tasks.sort(key=lambda x: 0 if "diesen" in str(x.get("termin", "")).lower() or "übermorgen" in str(x.get("termin", "")).lower() else 1)
     
-    if not next_week: st.caption("Alles ruhig! 😎")
-    for w in next_week:
-        # Wenn es ein Test ist, färben wir den Rand rot ein, ansonsten gelb
-        card_color = "#ef4444" if w.get("type") == "Test" else "#f59e0b"
-        badge_label = f"⚠️ TEST | {w['title']}" if w.get("type") == "Test" else w['title']
+    if not all_current_tasks: st.caption("Alles ruhig! 😎")
+    for w in all_current_tasks:
+        # Farbliche Unterscheidung: Tests bleiben rot markiert, normale HÜs gelb
+        is_test = w.get("type") == "Test"
+        card_color = "#ef4444" if is_test else "#f59e0b"
+        title_prefix = "⚠️ TEST | " if is_test else "📝 HÜ | "
         
         st.html(f"""
         <div class='task-card' style='border-left-color: {card_color};'>
-            <div class='card-info-line' style='color:#b45309; background:#fef3c7;'>📅 {w.get('termin', 'Nächste Woche')}</div>
-            <div class='card-title'>{badge_label}</div>
+            <div class='card-info-line' style='color:#b45309; background:#fef3c7;'>📅 {w.get('termin', 'Unbekannt')}</div>
+            <div class='card-title'>{title_prefix}{w['title']}</div>
             <div class='card-summary'>{w['summary']}</div>
             <div class='card-date'>Notiert am: {w.get('erstellt_am')}</div>
         </div>
         """)
-        with st.popover("Originaltext zeigen", use_container_width=True):
-            st.info(w["notes"])
+        with st.popover("Originaltext", use_container_width=True): st.info(w["notes"])
 
 # SPALTE 3: LERNPLAN
 with col3:

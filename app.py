@@ -165,22 +165,16 @@ if "handwriting_analysis" not in st.session_state: st.session_state.handwriting_
 if "active_summary" not in st.session_state: st.session_state.active_summary = ""
 
 # =========================================================================
-# UTILITIES & FEHLERFREIE BILD-KONVERTIERUNG (ROBUST FÜR AIRDROP/HEIC)
+# UTILITIES & WHISPER VOICE ENGINE
 # =========================================================================
 def encode_image(uploaded_file):
     try:
-        # Öffnet das Bild unabhängig vom Format (PNG, JPEG, HEIC durch piheif)
         image = Image.open(uploaded_file)
-        
-        # Konvertiert in Standard-RGB (wichtig für JPEGs und Apple Farbprofile)
         if image.mode in ("RGBA", "P", "CMYK"):
             image = image.convert("RGB")
-            
-        # Speichert es temporär im Speicher als sauberes JPEG
         buffer = io.BytesIO()
         image.save(buffer, format="JPEG")
         buffer.seek(0)
-        
         return base64.b64encode(buffer.read()).decode('utf-8')
     except Exception as e:
         st.error(f"Fehler bei Bild-Verarbeitung (AirDrop/Format): {e}")
@@ -254,7 +248,7 @@ def save_all_to_db():
     })
 
 # =========================================================================
-# CORE KI ENGINE MIT INTEGRATION DES GECHECKTEN SCHRIFTPROFILS
+# CORE KI ENGINE MIT SCHRIFTPROFIL
 # =========================================================================
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
@@ -264,22 +258,17 @@ def process_user_input(input_text, uploaded_image=None):
         wochentage = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
         heute_wochentag = wochentage[now.weekday()]
 
-        # AKTIVES HANDSCHRIFTEN-GEDÄCHTNIS EINSPEISEN
         handwriting_context = ""
         if st.session_state.get("handwriting_analysis"):
             handwriting_context = f"\nINFO ZUR HANDSCHRIFT DES SCHÜLERS: Beachte beim Auslesen und Entziffern von Bildern das gelernte Schriftprofil des Schülers: {st.session_state.handwriting_analysis}"
 
-        # HOCHPRÄZISE DATUMS-ANWEISUNG UM FEHLBERECHNUNGEN ZU VERHINDERN
         prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
         HEUTE IST: {heute_wochentag}, der {now_str}.{handwriting_context}
         
         STRIKTE MATHEMATISCHE DATUMS-BERECHNUNG:
         Wenn der User relative Zeitangaben macht, berechne das exakte Datum ausgehend von heute ({now_str}):
         - "diesen Freitag" = Freitag derselben Woche.
-        - "nächsten Freitag" / "nächste Woche Freitag" = Freitag der NÄCHSTEN Kalenderwoche. 
-          Beispiel: Wenn heute Dienstag der 09.06.2026 ist, ist "diesen Freitag" der 12.06.2026 und "nächste Woche Freitag" ist EXAKT der 19.06.2026.
-        Rechne mathematisch und kalendarisch fehlerfrei!
-        Falls der User ein Fach abkürzt (z.B. "bgeo"), ordne es dem passenden Fach zu (z.B. "Geografie").
+        - "nächsten Freitag" / "nächste Woche Freitag" = Freitag der NÄCHSTEN Kalenderwoche.
 
         Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
         Aktuelle Aufgaben auf dem Board: {json.dumps(st.session_state.tasks, ensure_ascii=False)}
@@ -340,7 +329,7 @@ if "initialized_user" not in st.session_state or st.session_state.initialized_us
         st.session_state.handwriting_analysis = db_state.get("handwriting_analysis", "")
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": f"Hi {st.session_state.user_id}! 🐊 Ich habe den Chat für uns zurückgesetzt. Alles ist frisch. Wie kann ich dir heute helfen?"}]
+        st.session_state.messages = [{"role": "assistant", "content": f"Hi {st.session_state.user_id}! 🐊 Ich habe den Chat für uns zurückgesetzt. Wie kann ich dir heute helfen?"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
         st.session_state.completed_count = 0
         st.session_state.grades = []
@@ -393,13 +382,17 @@ with st.sidebar:
         
     with st.expander("➕ / 🗑️ Profile verwalten"):
         new_prof_name = st.text_input("Neues Profil erstellen:", placeholder="Name eingeben...")
+        new_prof_aud = st.audio_input("Oder Name einsprechen:", key="aud_profile_name")
         if st.button("Profil anlegen 🚀", use_container_width=True):
-            if new_prof_name and new_prof_name.strip() not in st.session_state.available_profiles:
-                cleaned_name = new_prof_name.strip()
-                st.session_state.available_profiles.append(cleaned_name)
-                st.session_state.user_id = cleaned_name
+            final_p_name = new_prof_name.strip() if new_prof_name else ""
+            if new_prof_aud:
+                p_trans = transcribe_audio(new_prof_aud)
+                if p_trans: final_p_name = p_trans.replace(".", "").strip()
+            if final_p_name and final_p_name not in st.session_state.available_profiles:
+                st.session_state.available_profiles.append(final_p_name)
+                st.session_state.user_id = final_p_name
                 save_all_to_db()
-                st.success(f"Profil '{cleaned_name}' gestartet!")
+                st.success(f"Profil '{final_p_name}' gestartet!")
                 st.rerun()
 
 # =========================================================================
@@ -522,7 +515,7 @@ elif st.session_state.app_mode == "Karteikarten":
         with st.form("ki_card_generation_form"):
             ki_sub = st.selectbox("Fach:", st.session_state.subjects, key="ki_card_sub")
             ki_text_wish = st.text_input("Thema / Stoffgebiet:", placeholder="z.B. Vokabeln Unidad 2, Deklinationen...")
-            ki_aud_wish = st.audio_input("Thema per Sprache einsprechen:")
+            ki_aud_wish = st.audio_input("Thema per Sprache einsprechen:", key="aud_card_generation")
             ki_diff = st.select_slider("Schwierigkeitsgrad:", options=["Sehr Einfach", "Mittel", "Schwer / Knifflig"], value="Mittel")
             ki_count = st.number_input("Anzahl der Karten:", min_value=1, max_value=12, value=5)
             
@@ -563,10 +556,21 @@ elif st.session_state.app_mode == "Karteikarten":
         with st.form("add_card_form"):
             f_sub = st.selectbox("Fach:", st.session_state.subjects)
             f_q = st.text_input("Frage:")
+            f_q_aud = st.audio_input("Frage einsprechen:", key="aud_manual_q")
             f_a = st.text_input("Antwort:")
+            f_a_aud = st.audio_input("Antwort einsprechen:", key="aud_manual_a")
             if st.form_submit_button("Karte einpacken"):
-                if f_q and f_a:
-                    st.session_state.flashcards.append({"subject": f_sub, "question": f_q, "answer": f_a})
+                final_q = f_q.strip() if f_q else ""
+                final_a = f_a.strip() if f_a else ""
+                if f_q_aud:
+                    q_t = transcribe_audio(f_q_aud)
+                    if q_t: final_q = f"{final_q} {q_t}".strip()
+                if f_a_aud:
+                    a_t = transcribe_audio(f_a_aud)
+                    if a_t: final_a = f"{final_a} {a_t}".strip()
+                
+                if final_q and final_a:
+                    st.session_state.flashcards.append({"subject": f_sub, "question": final_q, "answer": final_a})
                     save_all_to_db(); st.success("Karte hinzugefügt!"); st.rerun()
 
 # =========================================================================
@@ -582,9 +586,14 @@ elif st.session_state.app_mode == "Notenspiegel":
         with g_col2: g_val = st.number_input("Note (1-5):", min_value=1.0, max_value=5.0, step=1.0)
         with g_col3: g_type = st.selectbox("Leistungsart:", ["Schularbeit (SA)", "Test", "Mitarbeit"])
         g_lbl = st.text_input("Beschreibung (z.B. Vocabulario Test, Referat):")
+        g_lbl_aud = st.audio_input("Beschreibung einsprechen:", key="aud_grade_desc")
         if st.form_submit_button("Note eintragen 📝"):
+            final_desc = g_lbl.strip() if g_lbl else ""
+            if g_lbl_aud:
+                d_trans = transcribe_audio(g_lbl_aud)
+                if d_trans: final_desc = f"{final_desc} {d_trans}".strip()
             st.session_state.grades.append({
-                "subject": g_sub, "grade": g_val, "label": g_type, "desc": g_lbl, "date": datetime.now().strftime("%d.%m.%Y")
+                "subject": g_sub, "grade": g_val, "label": g_type, "desc": final_desc if final_desc else g_type, "date": datetime.now().strftime("%d.%m.%Y")
             })
             save_all_to_db(); st.success("Eingetragen!"); st.rerun()
 
@@ -648,7 +657,7 @@ elif st.session_state.app_mode == "Lernzentrum":
     st.subheader("📚 KI-Stoff-Zusammenfasser (mit Sprachnachrichten-Support)")
     with st.expander("Lade Skripte hoch oder sprich deinen Lernstoff einfach ein!", expanded=True):
         sum_text = st.text_area("Lernstoff reinkopieren:", placeholder="Füge hier dicken Text ein...", height=150)
-        sum_audio = st.audio_input("Oder diktiere deinen Stoff live per Sprachnachricht:")
+        sum_audio = st.audio_input("Oder diktiere deinen Stoff live per Sprachnachricht:", key="aud_summary_engine")
         sum_file = st.file_uploader("Optional: Textdatei (.txt) hochladen:", type=["txt"])
         
         if st.button("Stoff knackig zusammenfassen! ✨", use_container_width=True):
@@ -765,12 +774,18 @@ elif st.session_state.app_mode == "Lernzentrum":
         with st.form("quest_gen_form"):
             q_sub = st.selectbox("Für welches Fach?", st.session_state.subjects)
             q_top = st.text_input("Thema:")
+            q_top_aud = st.audio_input("Thema einsprechen:", key="aud_quest_topic")
             if st.form_submit_button("🔥 Quest-Reihe schmieden!"):
-                if q_top:
+                final_q_top = q_top.strip() if q_top else ""
+                if q_top_aud:
+                    q_trans = transcribe_audio(q_top_aud)
+                    if q_trans: final_q_top = f"{final_q_top} {q_trans}".strip()
+                
+                if final_q_top:
                     with st.spinner("Schmiede..."):
                         try:
                             res = client.chat.completions.create(
-                                model="gpt-4o-mini", messages=[{"role": "user", "content": f"Baue 3 Quests für {q_sub} Thema {q_top}. JSON: {{ 'quests': [ {{ 'step': 1, 'title': '...', 'description': '...' }} ] }}"}],
+                                model="gpt-4o-mini", messages=[{"role": "user", "content": f"Baue 3 Quests für {q_sub} Thema {final_q_top}. JSON: {{ 'quests': [ {{ 'step': 1, 'title': '...', 'description': '...' }} ] }}"}],
                                 response_format={"type": "json_object"}
                             )
                             st.session_state.gaming_quests = json.loads(res.choices[0].message.content.strip()).get("quests", [])

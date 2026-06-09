@@ -99,7 +99,7 @@ st.html("""
         .card-title { color: #f8fafc !important; }
         .card-summary { color: #cbd5e1 !important; }
         .card-info-line { background: #881337 !important; color: #fda4af !important; }
-        .column-header { color: #94a3b8 !important; border-bottom: 2px solid #334155 !important; }
+        .column-header { color: #94a3b8 !important; border-bottom: 2px solid #334155 !important; border-bottom-color: rgb(51, 65, 85) !important; }
         
         .stat-card { background: #1e293b !important; border: 1px solid #334155 !important; box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important; }
         .stat-val { color: #f8fafc !important; }
@@ -155,6 +155,10 @@ if "user_id" not in st.session_state:
 # GLOBAL STATE INITIALISIERUNGEN
 if "xp" not in st.session_state: st.session_state.xp = 0
 if "streak" not in st.session_state: st.session_state.streak = 0
+if "tasks" not in st.session_state: st.session_state.tasks = []
+if "messages" not in st.session_state: st.session_state.messages = []
+if "subjects" not in st.session_state: st.session_state.subjects = DEFAULT_SUBJECTS
+if "grades" not in st.session_state: st.session_state.grades = []
 if "flashcards" not in st.session_state: st.session_state.flashcards = []
 if "card_flipped" not in st.session_state: st.session_state.card_flipped = False
 if "card_idx" not in st.session_state: st.session_state.card_idx = 0
@@ -200,7 +204,7 @@ def get_days_left(termin_str):
     return None
 
 def check_and_send_deadline_notifications():
-    if "tasks" not in st.session_state or not st.session_state.tasks: return
+    if not st.session_state.tasks: return
     for t in st.session_state.tasks:
         t_id = t.get("id")
         if t_id and t_id not in st.session_state.notified_task_ids:
@@ -248,11 +252,13 @@ def save_all_to_db():
     })
 
 # =========================================================================
-# CORE KI ENGINE (STRIKTE RECHNERISCHE DATUM- & LÖSCH-LOGIK)
+# CORE KI ENGINE (STRIKTE MATHEMATISCHE DATUMS-BERECHNUNG)
 # =========================================================================
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
     with st.spinner("Überlege... 🐊"):
+        
+        # FIX: Live-Berechnung des aktuellen Datums und Wochentags bei JEDEM einzelnen Absenden!
         now = datetime.now()
         now_str = now.strftime("%d.%m.%Y")
         wochentage = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
@@ -263,14 +269,13 @@ def process_user_input(input_text, uploaded_image=None):
             handwriting_context = f"\nINFO ZUR HANDSCHRIFT DES SCHÜLERS: Beachte beim Auslesen und Entziffern von Bildern das gelernte Schriftprofil des Schülers: {st.session_state.handwriting_analysis}"
 
         prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
-        HEUTE IST MATHEMATISCHER STARTPUNKT: {heute_wochentag}, der {now_str}.{handwriting_context}
         
-        STRIKTE REGEL FÜR DATUMS-BERECHNUNGEN:
-        Berechne relative Zeitangaben EXAKT ausgehend von heute ({now_str}):
-        - "Diesen Freitag" = Der Freitag in der aktuellen Woche.
-        - "Nächsten Freitag" oder "Nächste Woche Freitag" = Der Freitag der NÄCHSTEN Kalenderwoche (Heute + Tage bis Freitag + 7 Tage).
-        Gib das Datum IMMER im Format DD.MM.YYYY aus! Keine Ausnahmen!
-
+        CRITICAL DATE RULE:
+        - DAS HEUTIGE REALZEIT-DATUM IST STRIKT: {heute_wochentag}, der {now_str}.
+        - Du darfst KEIN anderes Datum erfinden oder schätzen! Jedes relative Datum (z.B. "morgen", "nächsten Dienstag", "in 3 Tagen") MUSS mathematisch exakt auf Basis des {now_str} berechnet werden.
+        - "Diesen Freitag" ist der Freitag der aktuellen Kalenderwoche. "Nächsten Freitag" ist der Freitag der kommenden Woche.
+        - Das Ausgabeformat für JEDES berechnete Datum MUSS ausnahmslos im Format DD.MM.YYYY sein!
+        
         LÖSCH-BEFEHLE STRICTLY BEFOLGEN:
         Wenn der User sagt, er möchte eine Aufgabe, einen Test oder eine Hausaufgabe löschen oder entfernen, musst du die passende ID der Aufgabe aus der Liste unten heraussuchen und sie in das Array 'tasks_to_delete' schreiben!
 
@@ -297,7 +302,7 @@ def process_user_input(input_text, uploaded_image=None):
                 content_payload.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{img_code}"} })
                 
         try:
-            response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": content_payload}], response_format={"type": "json_object"}, temperature=0.1)
+            response = client.chat.completions.create(model="gpt-4o-mini", messages=[{"role": "user", "content": content_payload}], response_format={"type": "json_object"}, temperature=0.0) # Temperature auf 0.0 für maximale Rechengenauigkeit
             result = json.loads(response.choices[0].message.content.strip())
             
             # 1. AUFGABEN HINZUFÜGEN
@@ -308,7 +313,7 @@ def process_user_input(input_text, uploaded_image=None):
                         "termin": t.get("termin"), "id": f"ai_{datetime.utcnow().timestamp()}_{i}"
                     })
             
-            # 2. FIX: AUFGABEN TATSÄCHLICH AUS DEM STATE LÖSCHEN
+            # 2. AUFGABEN ENTFERNEN
             if result.get("tasks_to_delete"):
                 delete_ids = result["tasks_to_delete"]
                 st.session_state.tasks = [task for task in st.session_state.tasks if task.get("id") not in delete_ids]
@@ -392,7 +397,7 @@ with st.sidebar:
         
     with st.expander("➕ / 🗑️ Profile verwalten"):
         new_prof_name = st.text_input("Neues Profil erstellen:", placeholder="Name eingeben...")
-        new_prof_aud = st.audio_input("Oder Name einsprechen:", key="aud_profile_name")
+        new_prof_aud = st.audio_input("Oder Name einsprezen:", key="aud_profile_name")
         if st.button("Profil anlegen 🚀", use_container_width=True):
             final_p_name = new_prof_name.strip() if new_prof_name else ""
             if new_prof_aud:
@@ -494,10 +499,10 @@ elif st.session_state.app_mode == "Karteikarten":
         
         fach = card.get('subject', 'Allgemein')
         frage = card.get('question', 'Keine Frage hinterlegt')
-        antwort = card.get('answer', 'Keine Antwort hinterlegt')
+        indigo = card.get('answer', 'Keine Antwort hinterlegt')
         
         if st.session_state.card_flipped:
-            st.html(f"<div class='flashcard-box flipped'>💡 Antwort:<br>{antwort}</div>")
+            st.html(f"<div class='flashcard-box flipped'>💡 Antwort:<br>{indigo}</div>")
         else:
             st.html(f"<div class='flashcard-box'>❓ Frage ({fach}):<br>{frage}</div>")
             

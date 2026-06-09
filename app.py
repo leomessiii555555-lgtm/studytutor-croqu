@@ -472,7 +472,7 @@ if st.session_state.app_mode == "Dashboard":
                 st.session_state.xp += 10; save_all_to_db(); st.rerun()
 
 # =========================================================================
-# MODUS 2: KARTEIKARTEN-TRAINER
+# MODUS 2: KARTEIKARTEN-TRAINER (ABGESICHERT GEGEN UNVOLLSTÄNDIGES JSON)
 # =========================================================================
 elif st.session_state.app_mode == "Karteikarten":
     st.title("🃏 Intelligenter Karteikarten-Trainer")
@@ -527,8 +527,11 @@ elif st.session_state.app_mode == "Karteikarten":
                 
                 if final_topic:
                     with st.spinner("Kroko designt deine Premium-Karten... 🐊"):
+                        # ERHÖHTE STRIKTNESS IM PROMPT GEGEN ABBRÜCHE
                         ki_prompt = f"""Erstelle exakt {ki_count} Karteikarten für das Schulfach '{ki_sub}' zum Thema '{final_topic}'.
                         Schwierigkeit: {ki_diff}.
+                        WICHTIG: Jede Karte MUSS zwingend eine 'question' UND eine passende, ausführliche 'answer' besitzen! Verlasse niemals das JSON-Format.
+                        
                         Antworte AUSSCHLIESSLICH im folgendem validen JSON-Format:
                         {{
                           "flashcards": [
@@ -538,15 +541,29 @@ elif st.session_state.app_mode == "Karteikarten":
                         try:
                             res = client.chat.completions.create(
                                 model="gpt-4o-mini", messages=[{"role": "user", "content": ki_prompt}],
-                                response_format={"type": "json_object"}, temperature=0.6
+                                response_format={"type": "json_object"}, temperature=0.5
                             )
                             generated_cards = json.loads(res.choices[0].message.content.strip()).get("flashcards", [])
+                            
+                            valid_cards_added = 0
                             for c in generated_cards:
-                                st.session_state.flashcards.append({
-                                    "subject": c.get("subject", ki_sub), "question": c.get("question", ""), "answer": c.get("answer", "")
-                                })
+                                q_text = c.get("question", "").strip()
+                                a_text = c.get("answer", "").strip()
+                                
+                                # SICHERHEITS-FILTER: Keine unvollständigen Karten speichern
+                                if q_text and a_text:
+                                    st.session_state.flashcards.append({
+                                        "subject": c.get("subject", ki_sub), 
+                                        "question": q_text, 
+                                        "answer": a_text
+                                    })
+                                    valid_cards_added += 1
+                                    
                             save_all_to_db()
-                            st.success(f"🎉 {len(generated_cards)} Karten wurden in den Stapel gepackt!")
+                            if valid_cards_added > 0:
+                                st.success(f"🎉 {valid_cards_added} fehlerfreie Karten wurden in den Stapel gepackt!")
+                            else:
+                                st.error("Die KI hat unvollständige Karten geliefert. Bitte versuche es noch einmal.")
                             time.sleep(1); st.rerun()
                         except Exception as e: st.error(f"Fehler beim Generieren: {e}")
                 else:

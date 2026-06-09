@@ -2,6 +2,7 @@ import streamlit as st
 import openai
 import requests
 import json
+import re
 from datetime import datetime, timedelta
 
 # =========================================================================
@@ -50,6 +51,28 @@ def parse_date_from_text(zeit_info):
     wochentage = {"montag": 0, "dienstag": 1, "mittwoch": 2, "donnerstag": 3, "freitag": 4, "samstag": 5, "sonntag": 6}
     zeit_info_lower = zeit_info.lower()
     
+    # Erkennung von exakten Daten im Text wie "6.7" oder "06.07."
+    match = re.search(r'(\d{1,2})\.(\d{1,2})', zeit_info_lower)
+    if match:
+        tag = int(match.group(1))
+        monat = int(match.group(2))
+        try:
+            ziel_datum = datetime(now.year, monat, tag)
+            # Falls das Datum in der Vergangenheit liegt, nimm das nächste Jahr
+            if ziel_datum < now.replace(hour=0, minute=0, second=0, microsecond=0):
+                ziel_datum = datetime(now.year + 1, monat, tag)
+            return ziel_datum.strftime('%d.%m.%Y')
+        except ValueError:
+            pass
+
+    if "übermorgen" in zeit_info_lower:
+        ziel_datum = now + timedelta(days=2)
+        return f"Übermorgen, {ziel_datum.strftime('%d.%m.%Y')}"
+        
+    if "morgen" in zeit_info_lower:
+        ziel_datum = now + timedelta(days=1)
+        return f"Morgen, {ziel_datum.strftime('%d.%m.%Y')}"
+
     if "nächst" in zeit_info_lower and not any(tag in zeit_info_lower for tag in wochentage):
         tage_bis_montag = (0 - now.weekday() + 7) % 7
         if tage_bis_montag == 0: tage_bis_montag = 7
@@ -73,6 +96,29 @@ def parse_date_from_text(zeit_info):
                 return f"Diesen {tag_name}, {ziel_datum.strftime('%d.%m.%Y')}"
                 
     return zeit_info
+
+# Hilfsfunktion um zu prüfen, ob ein Termin innerhalb der nächsten 14 Tage liegt
+def is_within_next_fortnight(termin_str):
+    if not termin_str:
+        return False
+    now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    max_date = now + timedelta(days=14)
+    
+    # Suche nach einem DD.MM.YYYY Format im String
+    match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', termin_str)
+    if match:
+        try:
+            task_date = datetime.strptime(match.group(0), '%d.%m.%Y')
+            return now <= task_date <= max_date
+        except ValueError:
+            return False
+            
+    # Fallback für relative Angaben
+    termin_lower = termin_str.lower()
+    if "diesen" in termin_lower or "morgen" in termin_lower or "übermorgen" in termin_lower or "nächst" in termin_lower:
+        return True
+        
+    return False
 
 # =========================================================================
 # DB-SYSTEM & API LOGIK
@@ -114,15 +160,15 @@ def extract_tasks_with_thinking(text, subjects_list):
         Verfügbare Fächer: {', '.join(subjects_list)}
         
         STRIKTE REGELN FÜR DIE SORTIERUNG:
-        1. Wenn 'Test', 'Arbeit', 'Prüfung', 'Klausur' vorkommt -> Typ MUSS "Test" sein.
+        1. Wenn 'Test', 'Arbeit', 'Prüfung', 'Klausur', 'Schularbeit' vorkommt -> Typ MUSS "Test" sein.
         2. Wenn es ein 'Lernplan' ist -> Typ ist "Lernplan".
         3. Ansonsten -> Typ ist "Hausaufgabe".
         
-        Zusätzlich musst du genau heraushören, WANN das Ereignis stattfindet (z.B. "Dienstag", "übermorgen", "nächste Woche"). Trage das exakt in das Feld "zeitpunkt" ein.
+        Zusätzlich musst du genau heraushören, WANN das Ereignis stattfindet (z.B. "Dienstag", "6.7.", "nächste Woche"). Trage das exakt in das Feld "zeitpunkt" ein.
         
         Antworte NUR mit einer JSON-Liste von Objekten:
         [
-          {{"title": "Fachname", "type": "Test" oder "Hausaufgabe" oder "Lernplan", "summary": "Kurztitel", "zeitpunkt": "z.B. Mittwoch"}}
+          {{"title": "Fachname", "type": "Test" oder "Hausaufgabe" oder "Lernplan", "summary": "Kurztitel", "zeitpunkt": "z.B. 6.7."}}
         ]
         Text: "{text}" """
         
@@ -224,12 +270,12 @@ with st.expander("💬 KI-Lerncoach Chatverlauf", expanded=True):
         process_user_input(text_input)
 
 # =========================================================================
-# LIVE WORKSPACE (OPTIMIERTES SORTIERSYSTEM)
+# LIVE WORKSPACE (MIT INTELLIGENTER TIMELINE-FILTERUNG)
 # =========================================================================
 st.write("### 📊 Mein aktueller Workspace")
 col1, col2, col3 = st.columns(3)
 
-# SPALTE 1: TESTS & ARBEITEN (Bleibt eine feste Übersicht für alle Arbeiten)
+# SPALTE 1: ALLE TESTS & ARBEITEN
 with col1:
     st.html("<div class='column-header'><span style='color: #ef4444;'>🔴</span> Tests & Arbeiten</div>")
     tests = [t for t in st.session_state.tasks if t.get("type") == "Test"]
@@ -245,17 +291,21 @@ with col1:
         """)
         with st.popover("Originaltext", use_container_width=True): st.info(t["notes"])
 
-# SPALTE 2: TIMELINE (Zeigt chronologisch Aufgaben & Tests nach Datum an!)
+# SPALTE 2: DYNAMISCHE TIMELINE (Zeigt NUR Einträge der nächsten 14 Tage!)
 with col2:
     st.html("<div class='column-header'><span style='color: #f59e0b;'>🟡</span> Diese & Nächste Woche</div>")
     
-    # Sortiert alle Aufgaben & Tests. Einträge mit "Diesen" (aktuelle Woche) rutschen automatisch nach oben
-    all_current_tasks = [t for t in st.session_state.tasks if t.get("type") in ["Hausaufgabe", "Test"]]
-    all_current_tasks.sort(key=lambda x: 0 if "diesen" in str(x.get("termin", "")).lower() or "übermorgen" in str(x.get("termin", "")).lower() else 1)
+    # Filtert strikt: Nur Aufgaben/Tests, deren errechnetes Datum innerhalb der nächsten 14 Tage liegt
+    upcoming_tasks = [
+        t for t in st.session_state.tasks 
+        if t.get("type") in ["Hausaufgabe", "Test"] and is_within_next_fortnight(t.get("termin", ""))
+    ]
     
-    if not all_current_tasks: st.caption("Alles ruhig! 😎")
-    for w in all_current_tasks:
-        # Farbliche Unterscheidung: Tests bleiben rot markiert, normale HÜs gelb
+    # Sortierung: Aktuelle Woche ("Diesen", "Morgen", "Übermorgen") nach oben
+    upcoming_tasks.sort(key=lambda x: 0 if any(k in str(x.get("termin", "")).lower() for k in ["diesen", "morgen", "übermorgen"]) else 1)
+    
+    if not upcoming_tasks: st.caption("In den nächsten zwei Wochen steht nichts an! 😎")
+    for w in upcoming_tasks:
         is_test = w.get("type") == "Test"
         card_color = "#ef4444" if is_test else "#f59e0b"
         title_prefix = "⚠️ TEST | " if is_test else "📝 HÜ | "

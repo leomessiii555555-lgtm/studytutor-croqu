@@ -142,6 +142,14 @@ def save_to_supabase(state_data):
 # =========================================================================
 # MULTI-MODAL REASONING ENGINE (TEXT, AUDIO & VISION)
 # =========================================================================
+def transcribe_audio(audio_file):
+    try:
+        audio_data = audio_file.read()
+        if not audio_data: return None
+        transcript = client.audio.transcriptions.create(model="whisper-1", file=("audio.wav", audio_data, "audio/wav"))
+        return transcript.text
+    except Exception: return None
+
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
 
@@ -164,7 +172,7 @@ def process_user_input(input_text, uploaded_image=None):
 
     User-Nachricht: "{input_text}"
 
-    STRIKTE RECHELN FÜR PROAKTIVE LERNPLANUNG & NOTEN:
+    STRIKTE REGELN FÜR PROAKTIVE LERNPLANUNG & NOTEN:
     1. Wenn der User eine Note meldet (z.B. eine 4 oder 5), speichere diese im Feld 'grade_to_add'.
     2. Wenn eine Note schlecht ist (z.B. 4 oder 5) ODER der User explizit nach Hilfe für ein Fach fragt, generiere AUTOMATISCH einen mehrtägigen, adaptiven Lernplan (z.B. über die nächsten 5-8 Tage verteilt). Packe JEDEN Tag als eigenen Eintrag in die 'tasks_to_add' Liste mit Typ 'Lernplan' und berechnetem Zieldatum!
     3. Falls ein Bild mitgeschickt wurde, analysiere den Text/Lernstoff auf dem Bild penibel und erstelle daraus passende Hausaufgaben oder Lernpläne.
@@ -182,11 +190,10 @@ def process_user_input(input_text, uploaded_image=None):
         }}
       ],
       "tasks_to_delete": [],
-      "grade_to_add": {{ "subject": "Fachname", "grade": 4, "note_label": "Schularbeit" }} // optional, nur wenn Note genannt wurde
+      "grade_to_add": {{ "subject": "Fachname", "grade": 4, "note_label": "Schularbeit" }} // optional
     }}
     """
 
-    # Multi-modaler Payload-Aufbau (Unterstützt Text und Bild)
     content_payload = [{"type": "text", "text": prompt}]
     
     if uploaded_image:
@@ -205,32 +212,23 @@ def process_user_input(input_text, uploaded_image=None):
         )
         result = json.loads(response.choices[0].message.content.strip())
         
-        # 1. Noten-Verarbeitung
         if result.get("grade_to_add"):
             g = result["grade_to_add"]
             st.session_state.grades.append({
-                "subject": g.get("subject"),
-                "grade": g.get("grade"),
-                "label": g.get("note_label", "Klausur"),
-                "date": now_str
+                "subject": g.get("subject"), "grade": g.get("grade"),
+                "label": g.get("note_label", "Klausur"), "date": now_str
             })
 
-        # 2. Löschungen
         if result.get("tasks_to_delete"):
             st.session_state.tasks = [t for t in st.session_state.tasks if t.get("id") not in result["tasks_to_delete"]]
             
-        # 3. Neuzugänge (inklusive der generierten Mehrtagespläne)
         if result.get("tasks_to_add"):
             for i, t in enumerate(result["tasks_to_add"]):
                 st.session_state.tasks.insert(0, {
-                    "title": t.get("title"),
-                    "type": t.get("type", "Lernplan"),
-                    "summary": t.get("summary"),
+                    "title": t.get("title"), "type": t.get("type", "Lernplan"), "summary": t.get("summary"),
                     "prioritaet": t.get("prioritaet", "🟡 Mittel"),
                     "notes": "Automatisch generierter KI-Lernschritt." if t.get("type") == "Lernplan" else input_text,
-                    "termin": t.get("termin"),
-                    "erstellt_am": now_str,
-                    "id": f"ai_{datetime.utcnow().timestamp()}_{i}_{t.get('title')}"
+                    "termin": t.get("termin"), "erstellt_am": now_str, "id": f"ai_{datetime.utcnow().timestamp()}_{i}_{t.get('title')}"
                 })
         
         display_text = input_text if input_text and input_text.strip() != "" else "📸 [Bild hochgeladen]"
@@ -238,10 +236,8 @@ def process_user_input(input_text, uploaded_image=None):
         st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Lernplan generiert und angepasst! 🐊")})
         
         save_to_supabase({
-            "tasks": st.session_state.tasks, 
-            "messages": st.session_state.messages, 
-            "subjects": st.session_state.subjects,
-            "completed_count": st.session_state.get("completed_count", 0),
+            "tasks": st.session_state.tasks, "messages": st.session_state.messages, 
+            "subjects": st.session_state.subjects, "completed_count": st.session_state.get("completed_count", 0),
             "grades": st.session_state.grades
         })
     except Exception as e: 
@@ -261,7 +257,7 @@ if "initialized" not in st.session_state:
         st.session_state.grades = db_state.get("grades", [])
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Ich bin dein intelligenter Mentor. Schick mir deine Noten oder fotografiere deinen Lernstoff!"}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Ich bin dein intelligenter Mentor. Schick mir deine Noten, sprich mit mir oder fotografiere deinen Lernstoff!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
         st.session_state.completed_count = 0
         st.session_state.grades = []
@@ -288,9 +284,19 @@ with st.sidebar:
     filter_subject = st.selectbox("Fach auswählen:", ["Alle Fächer"] + st.session_state.subjects)
     st.write("---")
 
-    # NEU: IMAGE UPLOADER DIREKT IM PROZESS
+    # RESTORED: DAS MIKROFON IST WIEDER DA!
+    st.subheader("🎙️ Sprachbefehl")
+    audio_file = st.audio_input("Sprachnachricht aufnehmen:")
+    if audio_file and st.button("🚀 Sprache senden", use_container_width=True):
+        text_from_speech = transcribe_audio(audio_file)
+        if text_from_speech: process_user_input(text_from_speech)
+    st.write("---")
+
+    # CAMERA FEATURE
     st.subheader("📸 Lernstoff einsenden")
     uploaded_img = st.file_uploader("Bild/Angabe hochladen:", type=["jpg", "jpeg", "png"])
+    if uploaded_img and st.button("🚀 Bild abschicken", use_container_width=True):
+        process_user_input("", uploaded_img)
     st.write("---")
 
     if st.button("🗑️ Reset", use_container_width=True):
@@ -302,14 +308,14 @@ with st.sidebar:
         st.rerun()
 
 # =========================================================================
-# MAIN CHAT & VISION SENDER
+# MAIN CHAT
 # =========================================================================
 with st.expander("💬 KI-Lerncoach & Mentor", expanded=True):
     for msg in st.session_state.messages[-3:]:
         with st.chat_message(msg["role"]): st.write(msg["content"])
     
-    chat_text = st.chat_input("Schreib mir oder lade links ein Bild hoch...")
-    if chat_text or (uploaded_img and st.sidebar.button("🚀 Bild abschicken", use_container_width=True)):
+    chat_text = st.chat_input("Schreib mir oder nutze das Mikrofon/die Kamera links...")
+    if chat_text:
         process_user_input(chat_text, uploaded_img)
 
 # =========================================================================
@@ -325,9 +331,7 @@ with stat_col3:
 with stat_col4:
     st.html(f"<div class='stat-card'><div class='stat-val' style='color:#3b82f6;'>{st.session_state.completed_count} ✅</div><div class='stat-lbl'>ERLEDIGT</div></div>")
 
-# =========================================================================
-# NEU: LIVE NOTENSPIEGEL ANZEIGE
-# =========================================================================
+# NOTENSPIEGEL
 if st.session_state.grades:
     st.write("### 📝 Mein aktueller Notenspiegel")
     grade_html = ""

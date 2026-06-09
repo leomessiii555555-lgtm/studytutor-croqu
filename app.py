@@ -174,7 +174,6 @@ def transcribe_audio(audio_file):
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
 
-    # Startet die visuelle Nachdenk-Animation auf der Website
     with st.spinner("Überlege... 🐊"):
         now = datetime.now()
         now_str = now.strftime("%d.%m.%Y")
@@ -187,15 +186,17 @@ def process_user_input(input_text, uploaded_image=None):
         prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
         Deine Aufgabe ist es, Schüler strategisch zu beraten, Noten zu tracken, hochgeladenen Stoff zu analysieren UND das Dashboard fehlerfrei zu steuern.
 
-        HEUTIGES DATUM: {weekday_str}, der {now_str}
-        Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
+        STRIKTE ZEIT-BASIS (RECHNE EXAKT!):
+        Heute ist {weekday_str}, der {now_str}.
+        Wenn der User relative Angaben macht (z.B. "nächsten Dienstag", "in 3 Tagen", "morgen", "am Freitag"), berechne das ZIEL-DATUM ausgehend vom {now_str} mathematisch absolut präzise! Verrechne dich nicht um Tage!
 
+        Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
         Bisherige Noten des Schülers: {json.dumps(grades_context, ensure_ascii=False)}
         Aktuelle Aufgaben auf dem Board: {json.dumps(tasks_context, ensure_ascii=False)}
 
         User-Nachricht: "{input_text}"
 
-        STRIKTE REGELN FÜR DIE STRUKTUR (KEINE AUTOMATISCHEN LERNPLÄNE MEHR):
+        STRIKTE REGELN FÜR DIE STRUKTUR:
         1. Wenn der User einen neuen TEST oder eine HAUSAUFGABE meldet, erstelle AUSSCHLIESSLICH diesen EINEN Eintrag mit Typ 'Test' oder 'Hausaufgabe'.
         2. Generiere NIEMALS automatisch ungefragt einen mehrtägigen Lernplan (keine Einträge mit Typ 'Lernplan' oder "Tag 1, Tag 2"-Stufen erzeugen), AUSSER der User verlangt explizit in seiner Nachricht einen Lernplan (z.B. "Erstelle mir einen Lernplan für...").
         3. Der 'summary'-Wert eines Tests/einer Hausaufgabe darf NIEMALS Bezeichnungen wie "Tag X" enthalten! Er muss sauber das Thema oder die Arbeit benennen (z.B. "Deutsch-Test" oder "Schularbeit zu Thema X").
@@ -209,7 +210,7 @@ def process_user_input(input_text, uploaded_image=None):
               "type": "Test" oder "Hausaufgabe" oder "Lernplan",
               "summary": "Sauberer Titel (NUR falls explizit gewünscht mit 'Tag X:' beginnen!)",
               "prioritaet": "🚨 Hoch" oder "🟡 Mittel" oder "🟢 Niedrig",
-              "termin": "DD.MM.YYYY"
+              "termin": "DD.MM.YYYY"  // MUSS MATHEMATISCH EXAKT BERECHNET SEIN!
             }}
           ],
           "tasks_to_delete": [],
@@ -406,7 +407,9 @@ with col1:
     tests = [t for t in active_tasks if t.get("type") == "Test"]
     if not tests: st.caption("Keine Tests geplant. 🎉")
     for t in tests:
-        st.html(f"<div class='task-card' style='border-left-color: #ef4444;'><div class='card-info-line'>📅 {t.get('termin')} | {t.get('prioritaet')}</div><div class='card-title'>{t['title']}</div><div class='card-summary'>{t['summary']}</div></div>")
+        days_left = get_days_left_string(t.get('termin'))
+        countdown = f"<div class='countdown-badge'>{days_left}</div>" if days_left else ""
+        st.html(f"<div class='task-card' style='border-left-color: #ef4444;'><div class='card-info-line'>📅 {t.get('termin')} | {t.get('prioritaet')}</div><div class='card-title'>{t['title']}</div><div class='card-summary'>{t['summary']}</div>{countdown}</div>")
         if st.button("✅ Erledigt", key=f"del_{t['id']}", use_container_width=True):
             st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != t['id']]
             st.session_state.completed_count += 1
@@ -420,7 +423,9 @@ with col2:
     for w in upcoming:
         is_test = w.get("type") == "Test"
         card_color = "#ef4444" if is_test else "#f59e0b"
-        st.html(f"<div class='task-card' style='border-left-color: {card_color};'><div class='card-info-line' style='color:#b45309; background:#fef3c7;'>📅 {w.get('termin')} | {w.get('prioritaet')}</div><div class='card-title'>{w['title']}</div><div class='card-summary'>{w['summary']}</div></div>")
+        days_left = get_days_left_string(w.get('termin'))
+        countdown = f"<div class='countdown-badge'>{days_left}</div>" if days_left else ""
+        st.html(f"<div class='task-card' style='border-left-color: {card_color};'><div class='card-info-line' style='color:#b45309; background:#fef3c7;'>📅 {w.get('termin')} | {w.get('prioritaet')}</div><div class='card-title'>{w['title']}</div><div class='card-summary'>{w['summary']}</div>{countdown}</div>")
         if st.button("✅ Erledigt", key=f"del_up_{w['id']}", use_container_width=True):
             st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != w['id']]
             st.session_state.completed_count += 1
@@ -432,7 +437,9 @@ with col3:
     plan = [t for t in active_tasks if t.get("type") == "Lernplan"]
     if not plan: st.caption("Kein aktiver Lernplan.")
     for p in plan:
-        st.html(f"<div class='task-card' style='border-left-color: #10b981;'><div class='card-info-line' style='color:#047857; background:#d1fae5;'>📅 Bis {p.get('termin')} | {p.get('prioritaet')}</div><div class='card-title'>{p['title']}</div><div class='card-summary'>{p['summary']}</div></div>")
+        days_left = get_days_left_string(p.get('termin'))
+        countdown = f"<div class='countdown-badge'>{days_left}</div>" if days_left else ""
+        st.html(f"<div class='task-card' style='border-left-color: #10b981;'><div class='card-info-line' style='color:#047857; background:#d1fae5;'>📅 Bis {p.get('termin')} | {p.get('prioritaet')}</div><div class='card-title'>{p['title']}</div><div class='card-summary'>{p['summary']}</div>{countdown}</div>")
         if st.button("✅ Schritt erledigt", key=f"del_p_{p['id']}", use_container_width=True):
             st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != p['id']]
             st.session_state.completed_count += 1

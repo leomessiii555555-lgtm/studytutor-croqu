@@ -49,7 +49,7 @@ st.html("""
 def parse_date_from_text(zeit_info):
     now = datetime.now()
     wochentage = {"montag": 0, "dienstag": 1, "mittwoch": 2, "donnerstag": 3, "freitag": 4, "samstag": 5, "sonntag": 6}
-    zeit_info_lower = zeit_info.lower()
+    zeit_info_lower = str(zeit_info).lower()
     
     match = re.search(r'(\d{1,2})\.(\d{1,2})', zeit_info_lower)
     if match:
@@ -60,27 +60,22 @@ def parse_date_from_text(zeit_info):
             if ziel_datum < now.replace(hour=0, minute=0, second=0, microsecond=0):
                 ziel_datum = datetime(now.year + 1, monat, tag)
             return ziel_datum.strftime('%d.%m.%Y')
-        except ValueError:
-            pass
+        except ValueError: pass
 
-    if "übermorgen" in zeit_info_lower:
-        return (now + timedelta(days=2)).strftime('%d.%m.%Y')
-    if "morgen" in zeit_info_lower:
-        return (now + timedelta(days=1)).strftime('%d.%m.%Y')
+    if "übermorgen" in zeit_info_lower: return (now + timedelta(days=2)).strftime('%d.%m.%Y')
+    if "morgen" in zeit_info_lower: return (now + timedelta(days=1)).strftime('%d.%m.%Y')
 
     for tag, index in wochentage.items():
         if tag in zeit_info_lower:
             tage_unterschied = (index - now.weekday() + 7) % 7
-            if tage_unterschied == 0 and "nächst" in zeit_info_lower:
-                tage_unterschied = 7
-            ziel_datum = now + timedelta(days=tage_unterschied)
-            return ziel_datum.strftime('%d.%m.%Y')
+            if tage_unterschied == 0 and "nächst" in zeit_info_lower: tage_unterschied = 7
+            return (now + timedelta(days=tage_unterschied)).strftime('%d.%m.%Y')
                 
     return zeit_info
 
 def get_days_left_string(termin_str):
     if not termin_str: return ""
-    match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', termin_str)
+    match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', str(termin_str))
     if match:
         try:
             task_date = datetime.strptime(match.group(0), '%d.%m.%Y').date()
@@ -98,16 +93,20 @@ def is_within_next_fortnight(termin_str):
     now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
     max_date = now + timedelta(days=14)
     
-    match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', termin_str)
+    match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', str(termin_str))
     if match:
         try:
             task_date = datetime.strptime(match.group(0), '%d.%m.%Y')
             return now <= task_date <= max_date
         except ValueError: return False
-    return True
+        
+    termin_lower = str(termin_str).lower()
+    if any(k in termin_lower for k in ["diesen", "morgen", "übermorgen", "nächste woche"]):
+        return True
+    return False
 
 # =========================================================================
-# DB-SYSTEM & API LOGIK
+# ADVANCED PERSISTENZ-SYSTEM (SUPABASE SYNC & SECURITY NET)
 # =========================================================================
 def load_from_supabase():
     headers = {"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"}
@@ -116,17 +115,42 @@ def load_from_supabase():
         response = requests.get(url, headers=headers)
         if response.status_code == 200 and response.json():
             return response.json()[0].get('app_state')
-    except Exception as e: st.sidebar.error(f"Fehler beim Laden: {e}")
+        elif response.status_code != 200:
+            st.sidebar.error(f"Supabase-Ladefehler: Status {response.status_code}")
+    except Exception as e: st.sidebar.error(f"Datenbank-Ladefehler: {e}")
     return None
 
 def save_to_supabase(state_data):
     if not state_data or "tasks" not in state_data: return
-    headers = {"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}", "Content-Type": "application/json", "Prefer": "resolution=merge-duplicates"}
+    
+    # POSTGREST HEADERS FÜR EIN ECHTES UPSERT (ON CONFLICT)
+    headers = {
+        "apikey": SUPABASE_ANON_KEY, 
+        "Authorization": f"Bearer {SUPABASE_ANON_KEY}", 
+        "Content-Type": "application/json", 
+        "Prefer": "on-conflict=id, resolution=merge-duplicates"
+    }
     url = f"{SUPABASE_URL}/rest/v1/studytutor_data"
     payload = {"id": USER_ID, "app_state": state_data, "updated_at": datetime.utcnow().isoformat()}
-    try: requests.post(url, headers=headers, json=payload)
-    except Exception as e: st.error(f"Fehler beim Speichern: {e}")
+    
+    try: 
+        res = requests.post(url, headers=headers, json=payload)
+        # Sichert ab: Falls POST (409/400) wegen bestehender ID fehlschlägt -> Nutze PATCH-Fallback
+        if res.status_code not in [200, 201]:
+            patch_url = f"{SUPABASE_URL}/rest/v1/studytutor_data?id=eq.{USER_ID}"
+            res_patch = requests.patch(patch_url, headers=headers, json={"app_state": state_data, "updated_at": datetime.utcnow().isoformat()})
+            if res_patch.status_code not in [200, 204]:
+                st.sidebar.error(f"🚨 Cloud-Sync fehlgeschlagen (POST: {res.status_code} / PATCH: {res_patch.status_code})")
+            else:
+                st.sidebar.success("☁️ Daten erfolgreich in Cloud gesichert!")
+        else:
+            st.sidebar.success("☁️ Daten erfolgreich in Cloud gesichert!")
+    except Exception as e: 
+        st.sidebar.error(f"🚨 Verbindungsfehler Cloud: {e}")
 
+# =========================================================================
+# AUDIO & KI EXTRAKTION (ID-BASED DELETION)
+# =========================================================================
 def transcribe_audio(audio_file):
     try:
         audio_data = audio_file.read()
@@ -137,20 +161,35 @@ def transcribe_audio(audio_file):
         st.error(f"Audio-Fehler: {e}")
         return None
 
-def extract_tasks_with_thinking(text, subjects_list):
+def extract_tasks_with_thinking(text, subjects_list, current_tasks):
     try:
+        # Wir geben der KI Kontext über alle Aufgaben, die aktuell live existieren!
+        tasks_context = [{"id": t.get("id"), "title": t.get("title"), "summary": t.get("summary"), "type": t.get("type"), "termin": t.get("termin")} for t in current_tasks]
+        
         prompt = f"""Analysiere den folgenden Schul-Text extrem gründlich.
         Verfügbare Fächer: {', '.join(subjects_list)}
         
+        Aktuelle Aufgaben auf dem Board:
+        {json.dumps(tasks_context, ensure_ascii=False)}
+        
         STRIKTE REGELN FÜR DIE SORTIERUNG:
-        1. Wenn der User sagt, dass ein Termin NICHT stattfindet, abgesagt wurde oder gelöscht werden soll -> Typ MUSS "delete" sein.
+        1. Wenn der User sagt, dass ein Termin NICHT stattfindet, abgesagt wurde, gelöscht werden soll oder erledigt ist:
+           - Typ MUSS "delete" sein.
+           - Suche in den 'Aktuellen Aufgaben auf dem Board' nach dem passenden Eintrag.
+           - Trage die exakte "id" dieses Eintrags in das Feld "delete_id" ein.
         2. Wenn 'Test', 'Arbeit', 'Prüfung', 'Klausur', 'Schularbeit' vorkommt -> Typ MUSS "Test" sein.
         3. Wenn es ein 'Lernplan' ist -> Typ ist "Lernplan".
         4. Ansonsten -> Typ ist "Hausaufgabe".
         
         Antworte NUR mit einer JSON-Liste von Objekten:
         [
-          {{"title": "Fachname", "type": "Test" oder "Hausaufgabe" oder "Lernplan" oder "delete", "summary": "Kurztitel", "zeitpunkt": "z.B. 6.7."}}
+          {{
+            "title": "Fachname", 
+            "type": "Test" oder "Hausaufgabe" oder "Lernplan" oder "delete", 
+            "summary": "Kurztitel", 
+            "zeitpunkt": "z.B. 6.7.",
+            "delete_id": "EXAKTE_ID_ZUM_LÖSCHEN_SONST_NULL"
+          }}
         ]
         Text: "{text}" """
         
@@ -161,7 +200,7 @@ def extract_tasks_with_thinking(text, subjects_list):
         tasks = []
         now_str = datetime.now().strftime("%d.%m.%Y")
         for item in extracted_list:
-            raw_zeit = item.get("zeitpunkt", "Unbekannt")
+            raw_zeit = item.get("zeitpunkt", "Unbekannt") if item.get("zeitpunkt") else "Unbekannt"
             echtes_datum = parse_date_from_text(raw_zeit)
             
             tasks.append({
@@ -171,7 +210,8 @@ def extract_tasks_with_thinking(text, subjects_list):
                 "notes": text,
                 "termin": echtes_datum, 
                 "erstellt_am": now_str,
-                "id": f"{datetime.utcnow().timestamp()}_{item.get('title')}"
+                "id": f"{datetime.utcnow().timestamp()}_{item.get('title')}",
+                "delete_id": item.get("delete_id")
             })
         return tasks
     except Exception as e: 
@@ -181,11 +221,15 @@ def extract_tasks_with_thinking(text, subjects_list):
 def process_user_input(input_text):
     if not input_text or input_text.strip().lower() in ["you", "you.", ""]: return
 
-    new_tasks = extract_tasks_with_thinking(input_text, st.session_state.subjects)
+    new_tasks = extract_tasks_with_thinking(input_text, st.session_state.subjects, st.session_state.tasks)
     
     for task in new_tasks:
         if task["type"] == "delete":
-            st.session_state.tasks = [t for t in st.session_state.tasks if not (t.get("title").lower() == task["title"].lower())]
+            # Bulletproof ID-Löschung aus allen Spalten gleichzeitig!
+            if task.get("delete_id"):
+                st.session_state.tasks = [t for t in st.session_state.tasks if t.get("id") != task["delete_id"]]
+            else:
+                st.session_state.tasks = [t for t in st.session_state.tasks if not (t.get("title").lower() == task["title"].lower())]
         else:
             if not any(t.get("title") == task["title"] and t.get("summary") == task["summary"] for t in st.session_state.tasks):
                 st.session_state.tasks.insert(0, task)
@@ -214,7 +258,7 @@ if "initialized" not in st.session_state:
         st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Dein Pro-Board mit Live-Countdowns läuft!"}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Dein Workspace ist live synchronisiert!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
     st.session_state.initialized = True
 
@@ -225,23 +269,20 @@ with st.sidebar:
     st.title("StudyTutor Pro 🐊")
     st.write("---")
     
-    # NEU: INTELLIGENTER FÄCHER-FILTER
     st.subheader("🔍 Workspace filtern")
     filter_subject = st.selectbox("Zeige nur Aufgaben für:", ["Alle Fächer"] + st.session_state.subjects)
     st.write("---")
     
-    # AUDIO INPUT
     audio_file = st.audio_input("🎙️ Sprachbefehl aufnehmen")
     if audio_file and st.button("🚀 Sprachnachricht senden", use_container_width=True):
         text_from_speech = transcribe_audio(audio_file)
         if text_from_speech: process_user_input(text_from_speech)
     st.write("---")
 
-    # NEU: BLITZ-FORMULAR FÜR MANUELLE EINTRÄGE
     with st.expander("➕ Aufgabe schnell eintippen"):
         with st.form("manual_quick_form", clear_on_submit=True):
             m_sub = st.selectbox("Fach", st.session_state.subjects)
-            m_type = st.selectbox("Typ", ["Hausaufgabe", "Test", "Lernplan"])
+            m_type = m_type = st.selectbox("Typ", ["Hausaufgabe", "Test", "Lernplan"])
             m_sum = st.text_input("Was ist zu tun?")
             m_date = st.date_input("Bis wann?", datetime.now() + timedelta(days=1))
             if st.form_submit_button("Direkt eintragen"):
@@ -269,7 +310,6 @@ with st.expander("💬 KI-Lerncoach Chatverlauf", expanded=True):
     if text_input := st.chat_input("Schreib deine Aufgaben hier hinein..."):
         process_user_input(text_input)
 
-# FILTER LOGIK ANWENDEN
 active_tasks = st.session_state.tasks if filter_subject == "Alle Fächer" else [t for t in st.session_state.tasks if t.get("title") == filter_subject]
 
 # =========================================================================
@@ -293,7 +333,7 @@ with col1:
             with st.popover("📝 Info", use_container_width=True): st.info(t["notes"])
         with btn_col2:
             if st.button("✅ Erledigt", key=f"del_{t['id']}", use_container_width=True):
-                st.session_state.tasks.remove(t)
+                st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != t['id']]
                 save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
                 st.rerun()
 
@@ -329,6 +369,6 @@ with col3:
     for p in plan:
         st.html(f"<div class='task-card' style='border-left-color: #10b981;'><div class='card-title'>{p['title']}</div><div class='card-summary'>{p['summary']}</div></div>")
         if st.button("✅ Plan beenden", key=f"del_p_{p['id']}", use_container_width=True):
-            st.session_state.tasks.remove(p)
+            st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != p['id']]
             save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
             st.rerun()

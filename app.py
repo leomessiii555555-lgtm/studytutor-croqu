@@ -160,6 +160,14 @@ if "handwriting_analysis" not in st.session_state: st.session_state.handwriting_
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode('utf-8')
 
+def transcribe_audio(audio_file):
+    try:
+        audio_data = audio_file.read()
+        if not audio_data: return None
+        transcript = client.audio.transcriptions.create(model="whisper-1", file=("audio.wav", audio_data, "audio/wav"))
+        return transcript.text
+    except Exception: return None
+
 def get_days_left(termin_str):
     if not termin_str: return None
     match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', str(termin_str))
@@ -218,17 +226,6 @@ def save_all_to_db():
         "streak": st.session_state.streak, "flashcards": st.session_state.flashcards, "gaming_quests": st.session_state.gaming_quests,
         "kuckuckseier": st.session_state.kuckuckseier, "handwriting_analysis": st.session_state.handwriting_analysis
     })
-
-# =========================================================================
-# LERNENGINE CORE PROZESSE
-# =========================================================================
-def transcribe_audio(audio_file):
-    try:
-        audio_data = audio_file.read()
-        if not audio_data: return None
-        transcript = client.audio.transcriptions.create(model="whisper-1", file=("audio.wav", audio_data, "audio/wav"))
-        return transcript.text
-    except Exception: return None
 
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
@@ -339,7 +336,6 @@ with st.sidebar:
 if st.session_state.app_mode == "Dashboard":
     st.title("Dein Alltags-Cockpit 📊")
     
-    # 📅 EDEL-KALENDER
     st.markdown("### 📅 Dein smarter Terminkalender")
     with st.container(border=False):
         st.html("<div class='calendar-container'>")
@@ -370,7 +366,6 @@ if st.session_state.app_mode == "Dashboard":
             """)
         st.html("</div>")
 
-    # COACH CHAT
     with st.expander(f"💬 KI-Lerncoach & Mentor", expanded=False):
         for msg in st.session_state.messages[-3:]:
             with st.chat_message(msg["role"]): st.write(msg["content"])
@@ -386,7 +381,6 @@ if st.session_state.app_mode == "Dashboard":
                     if a_txt: final_text = f"{final_text} {a_txt}".strip()
                 if final_text: process_user_input(final_text)
 
-    # TASKS KANBAN
     st.write("### 🗂️ Dein Workspace-Board")
     col1, col2 = st.columns(2)
     with col1:
@@ -405,7 +399,7 @@ if st.session_state.app_mode == "Dashboard":
                 st.session_state.xp += 10; save_all_to_db(); st.rerun()
 
 # =========================================================================
-# MODUS 2: KARTEIKARTEN-TRAINER (IMMER NOCH DABEI!)
+# MODUS 2: KARTEIKARTEN-TRAINER (FIXED!)
 # =========================================================================
 elif st.session_state.app_mode == "Karteikarten":
     st.title("🃏 Intelligenter Karteikarten-Trainer")
@@ -415,11 +409,15 @@ elif st.session_state.app_mode == "Karteikarten":
         idx = st.session_state.card_idx % len(st.session_state.flashcards)
         card = st.session_state.flashcards[idx]
         
-        # Karteikarten Flip Visualisierung
+        # KEYERROR FIX DURCH .get() METHODE
+        fach = card.get('subject', 'Allgemein')
+        frage = card.get('question', 'Keine Frage hinterlegt')
+        antwort = card.get('answer', 'Keine Antwort hinterlegt')
+        
         if st.session_state.card_flipped:
-            st.html(f"<div class='flashcard-box flipped'>💡 Antwort:<br>{card['answer']}</div>")
+            st.html(f"<div class='flashcard-box flipped'>💡 Antwort:<br>{antwort}</div>")
         else:
-            st.html(f"<div class='flashcard-box'>❓ Frage ({card['subject']}):<br>{card['question']}</div>")
+            st.html(f"<div class='flashcard-box'>❓ Frage ({fach}):<br>{frage}</div>")
             
         b_col1, b_col2, b_col3 = st.columns(3)
         with b_col1:
@@ -439,7 +437,6 @@ elif st.session_state.app_mode == "Karteikarten":
     else:
         st.info("Dein Karteikastendeck ist aktuell leer. Generiere neue Karten über das Formular unten!")
 
-    # Erstellungsbereich
     st.write("---")
     st.subheader("➕ Neue Lernkarten hinzufügen")
     with st.form("add_card_form"):
@@ -452,35 +449,64 @@ elif st.session_state.app_mode == "Karteikarten":
                 save_all_to_db(); st.success("Karte hinzugefügt!"); st.rerun()
 
 # =========================================================================
-# MODUS 3: NOTENSPIEGEL (AUCH VOLL INTACT!)
+# MODUS 3: NOTENSPIEGEL (ÖSTERREICH-GEWICHTUNG & ENTFERNEN UPGRADE!)
 # =========================================================================
 elif st.session_state.app_mode == "Notenspiegel":
-    st.title("📝 Dein persönlicher Notenspiegel")
-    st.markdown("Verwalte deine schulischen Leistungen und behalte den exakten Überblick über deine Schnitte.")
+    st.title("📝 Dein persönlicher Notenspiegel (Österreichische Gewichtung)")
+    st.markdown("Verwalte deine schulischen Leistungen. Schularbeiten (SA) und die restliche Mitarbeit/Tests (MÜ) werden nach österreichischem System zu je 50% gewichtet.")
     
     with st.form("grade_form"):
         g_col1, g_col2, g_col3 = st.columns(3)
         with g_col1: g_sub = st.selectbox("Fach:", st.session_state.subjects)
-        with g_col2: g_val = st.number_input("Note (1-6):", min_value=1.0, max_value=6.0, step=0.5)
-        with g_col3: g_lbl = st.text_input("Art (z.B. Ex, Arbeit):")
+        with g_col2: g_val = st.number_input("Note (1-5):", min_value=1.0, max_value=5.0, step=1.0)
+        with g_col3: g_type = st.selectbox("Leistungsart:", ["Schularbeit (SA)", "Test / Mitarbeitsüberprüfung (MÜ)"])
+        g_lbl = st.text_input("Beschreibung (z.B. 1. SA, Vokabeltest):")
         if st.form_submit_button("Note eintragen 📝"):
-            st.session_state.grades.append({"subject": g_sub, "grade": g_val, "label": g_lbl, "date": datetime.now().strftime("%d.%m.%Y")})
+            st.session_state.grades.append({
+                "subject": g_sub, "grade": g_val, "label": g_type, "desc": g_lbl, "date": datetime.now().strftime("%d.%m.%Y")
+            })
             save_all_to_db(); st.success("Eingetragen!"); st.rerun()
 
     if st.session_state.grades:
-        st.write("### 📈 Deine Übersicht")
+        st.write("### 📈 Deine Fachübersichten & Schnitte")
         for s in st.session_state.subjects:
             sub_grades = [g for g in st.session_state.grades if g["subject"] == s]
             if sub_grades:
-                avg = sum([g["grade"] for g in sub_grades]) / len(sub_grades)
-                badges_html = "".join([f"<span class='grade-badge'>{g['grade']} ({g['label']})</span>" for g in sub_grades])
-                st.markdown(f"**{s}** (Schnitt: {avg:.2f})")
-                st.html(f"<div>{badges_html}</div><br>")
+                # ÖSTERREICH-SYSTEM LOGIK: SA zählt 50%, MÜ/Tests zählen 50%
+                sa_list = [g["grade"] for g in sub_grades if "Schularbeit" in g.get("label", "")]
+                mu_list = [g["grade"] for g in sub_grades if "Schularbeit" not in g.get("label", "")]
+                
+                if sa_list and mu_list:
+                    sa_avg = sum(sa_list) / len(sa_list)
+                    mu_avg = sum(mu_list) / len(mu_list)
+                    avg = (sa_avg * 0.5) + (mu_avg * 0.5)
+                    calc_details = f"(SA-Schnitt: {sa_avg:.1f} [50%] | MÜ-Schnitt: {mu_avg:.1f} [50%])"
+                elif sa_list:
+                    avg = sum(sa_list) / len(sa_list)
+                    calc_details = "(Nur Schularbeiten vorhanden)"
+                else:
+                    avg = sum(mu_list) / len(mu_list)
+                    calc_details = "(Nur Mitarbeit/Tests vorhanden)"
+                
+                st.markdown(f"#### **{s}** — Aktueller Stand: **{avg:.2f}**")
+                st.caption(calc_details)
+                
+                # LISTE MIT LÖSCH-OPTION (FÜR UNABSICHTLICHE EINTRÄGE)
+                for idx, g in enumerate(st.session_state.grades):
+                    if g["subject"] == s:
+                        g_col, del_col = st.columns([5, 1])
+                        with g_col:
+                            st.html(f"<span class='grade-badge'>{g['grade']}</span> <b>{g.get('label','')}</b>: {g.get('desc','')} ({g['date']})")
+                        with del_col:
+                            if st.button("🗑️", key=f"del_g_{idx}", help="Note löschen"):
+                                st.session_state.grades.pop(idx)
+                                save_all_to_db(); st.rerun()
+                st.write("---")
     else:
         st.info("Noch keine Noten eingetragen. Mach deine Statistiken bereit!")
 
 # =========================================================================
-# MODUS 4: KROKO-LERNZENTRUM (UNABHÄNGIGES PREMIUM GAMING ACCORD)
+# MODUS 4: KROKO-LERNZENTRUM (MULTIMODALER THEMEN-ZERLEGER UPGRADE!)
 # =========================================================================
 elif st.session_state.app_mode == "Lernzentrum":
     st.html("<div class='gaming-container'>")
@@ -568,27 +594,53 @@ elif st.session_state.app_mode == "Lernzentrum":
                     except Exception: pass
                 save_all_to_db(); st.rerun()
 
-    # THEMEN ZERLEGER (QUEST SYSTEM)
+    # THEMEN ZERLEGER (UPGRADED MIT SPRACHCHAT & BILD-UPLOAD)
     st.write("---")
-    st.subheader("🗺️ Deine aktive Quest-Reihe (KI-Themen-Zerleger)")
+    st.subheader("🗺️ Deine active Quest-Reihe (KI-Themen-Zerleger)")
     quests_blocked = len(st.session_state.kuckuckseier) > 0
     
     if not st.session_state.gaming_quests:
-        st.info("Aktuell läuft keine Quest-Reihe. Generiere dir eine neue Kampagne!")
+        st.info("Aktuell läuft keine Quest-Reihe. Generiere dir eine neue Kampagne über Text, Sprache oder ein Foto deines Stoffs!")
         with st.form("quest_gen_form"):
-            q_sub = st.selectbox("Fach:", st.session_state.subjects)
-            q_top = st.text_input("Welcher Stoffberg soll zerlegt werden?")
-            if st.form_submit_button("🔥 Quest-Reihe schmieden!") and q_top:
-                with st.spinner("Kroko baut die Quest... 🐊"):
-                    try:
-                        res = client.chat.completions.create(
-                            model="gpt-4o-mini",
-                            messages=[{"role": "user", "content": f"Zerlege das Thema '{q_top}' für {q_sub} in exakt 3 Quests. Antworte als JSON: {{ 'quests': [ {{ 'step': 1, 'title': '...', 'description': '...' }} ] }}"}],
-                            response_format={"type": "json_object"}
-                        )
-                        st.session_state.gaming_quests = json.loads(res.choices[0].message.content.strip()).get("quests", [])
-                        save_all_to_db(); st.rerun()
-                    except Exception as e: st.error(f"Fehler: {e}")
+            q_sub = st.selectbox("Für welches Fach?", st.session_state.subjects)
+            q_top = st.text_input("Thema eintippen (optional):")
+            q_aud = st.audio_input("Oder sprich das Thema ein (Speech-to-Text):")
+            q_img = st.file_uploader("Oder lade ein Bild des Stoffs hoch (Buchseite, Mitschrift):", type=["jpg", "jpeg", "png"])
+            
+            if st.form_submit_button("🔥 Quest-Reihe schmieden!"):
+                final_topic_text = q_top.strip() if q_top else ""
+                
+                # 1. Sprache transkribieren falls vorhanden
+                if q_aud:
+                    with st.spinner("Transkribiere Audio..."):
+                        spoken_text = transcribe_audio(q_aud)
+                        if spoken_text:
+                            final_topic_text += f" [Mündlicher Input]: {spoken_text}"
+                
+                if final_topic_text or q_img:
+                    with st.spinner("Kroko baut die Quest aus deinen Daten... 🐊"):
+                        # Basis-Prompt bauen
+                        main_prompt = f"""Zerlege das Thema/den Stoff für das Fach '{q_sub}' in exakt 3 logische, aufeinander aufbauende Quests zum Lernen.
+                        Nutze den angegebenen Text sowie eventuelle Informationen aus dem hochgeladenen Bild des Lernstoffs.
+                        Text-Input: {final_topic_text}
+                        Antworte AUSSCHLIESSLICH als validiertes JSON-Objekt in dieser Struktur:
+                        {{ 'quests': [ {{ 'step': 1, 'title': 'Quest-Titel', 'description': 'Was genau zu tun ist' }} ] }}"""
+                        
+                        content_list = [{"type": "text", "text": main_prompt}]
+                        if q_img:
+                            content_list.append({"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{encode_image(q_img)}"}})
+                        
+                        try:
+                            res = client.chat.completions.create(
+                                model="gpt-4o-mini",
+                                messages=[{"role": "user", "content": content_list}],
+                                response_format={"type": "json_object"}
+                            )
+                            st.session_state.gaming_quests = json.loads(res.choices[0].message.content.strip()).get("quests", [])
+                            save_all_to_db(); st.rerun()
+                        except Exception as e: st.error(f"Fehler bei der Quest-Generierung: {e}")
+                else:
+                    st.warning("Bitte gib mindestens Text ein, nimm ein Audio auf oder lade ein Bild hoch!")
     else:
         for idx, q in enumerate(st.session_state.gaming_quests):
             is_locked = "locked" if quests_blocked else ("active-quest" if idx == 0 else "")

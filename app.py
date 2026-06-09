@@ -20,10 +20,12 @@ DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "P
 
 st.set_page_config(page_title="StudyTutor Pro 🐊", layout="wide", initial_sidebar_state="expanded")
 
-# PREMIUM CUSTOM CSS
+# PREMIUM CUSTOM CSS (MIT AUTOMATISCHEM & EDLEM DARK-MODE)
 st.html("""
 <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght=300;400;500;600;700&display=swap');
+    
+    /* STANDARD HELLER MODUS */
     .stApp { background-color: #fafafa; color: #1e293b; font-family: 'Inter', sans-serif; }
     [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #f1f5f9; padding-top: 2rem; }
     
@@ -71,9 +73,69 @@ st.html("""
         display: inline-block;
         margin: 4px;
         border: 1px solid #cbd5e1;
+        color: #1e293b;
+    }
+
+    /* AUTOMATISCHER, EDLER DUNKLER MODUS (Aktiviert sich von selbst, wenn das System dunkel ist) */
+    @media (prefers-color-scheme: dark) {
+        .stApp { background-color: #0f172a !important; color: #f8fafc !important; }
+        [data-testid="stSidebar"] { background-color: #1e293b !important; border-right: 1px solid #334155 !important; }
+        
+        .task-card {
+            background: #1e293b !important;
+            border: 1px solid #334155 !important;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3) !important;
+            border-left: 5px solid #ef4444 !important;
+        }
+        .card-title { color: #f8fafc !important; }
+        .card-summary { color: #cbd5e1 !important; }
+        .card-info-line { background: #881337 !important; color: #fda4af !important; }
+        .column-header { color: #94a3b8 !important; border-bottom: 2px solid #334155 !important; }
+        .countdown-badge { color: #fca5a5 !important; }
+        
+        .stat-card {
+            background: #1e293b !important;
+            border: 1px solid #334155 !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+        }
+        .stat-val { color: #f8fafc !important; }
+        .stat-lbl { color: #94a3b8 !important; }
+        
+        .grade-badge {
+            background: #1e293b !important;
+            border: 1px solid #475569 !important;
+            color: #f8fafc !important;
+        }
+        
+        /* Sorgt dafür, dass Standard-Streamlit-Texte im Dark Mode weiß sind */
+        p, h1, h2, h3, h4, h5, h6, span, label { color: #f8fafc !important; }
     }
 </style>
 """)
+
+# =========================================================================
+# JAVASCRIPT MITTEILUNGS-SYSTEM (PUSH NOTIFICATIONS)
+# =========================================================================
+st.html("""
+<script>
+    if (Notification.permission !== "granted" && Notification.permission !== "denied") {
+        Notification.requestPermission();
+    }
+
+    window.sendKrokoNotification = function(title, body) {
+        if (Notification.permission === "granted") {
+            new Notification(title, {
+                body: body,
+                icon: "https://emojicdn.elk.sh/🐊"
+            });
+        }
+    };
+</script>
+""")
+
+def trigger_browser_notification(title, text):
+    js_code = f"<script>window.sendKrokoNotification({json.dumps(title)}, {json.dumps(text)});</script>"
+    st.html(js_code)
 
 # =========================================================================
 # GLOBAL PROFIL MANAGEMENT & KONTEN-ABRUF
@@ -97,13 +159,13 @@ if "available_profiles" not in st.session_state:
 if "user_id" not in st.session_state:
     st.session_state.user_id = st.session_state.available_profiles[0]
 
-# Initialisiere zusätzliche Session States für alle Features
 if "xp" not in st.session_state: st.session_state.xp = 0
 if "streak" not in st.session_state: st.session_state.streak = 0
 if "flashcards" not in st.session_state: st.session_state.flashcards = []
 if "card_flipped" not in st.session_state: st.session_state.card_flipped = False
 if "card_ki_response" not in st.session_state: st.session_state.card_ki_response = ""
 if "card_idx" not in st.session_state: st.session_state.card_idx = 0
+if "notified_task_ids" not in st.session_state: st.session_state.notified_task_ids = []
 
 # =========================================================================
 # UTILITIES & IMAGE ENCODING
@@ -111,32 +173,60 @@ if "card_idx" not in st.session_state: st.session_state.card_idx = 0
 def encode_image(uploaded_file):
     return base64.b64encode(uploaded_file.read()).decode('utf-8')
 
-def get_days_left_string(termin_str):
-    if not termin_str: return ""
+def get_days_left(termin_str):
+    if not termin_str: return None
     match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', str(termin_str))
     if match:
         try:
             task_date = datetime.strptime(match.group(0), '%d.%m.%Y').date()
             today = datetime.now().date()
-            delta = (task_date - today).days
-            if delta == 0: return "🚨 HEUTE!"
-            elif delta == 1: return "⏳ Morgen!"
-            elif delta < 0: return f"⚠️ Überfällig ({abs(delta)} Tage)"
-            else: return f"⏳ Noch {delta} Tage"
+            return (task_date - today).days
         except ValueError: pass
-    return ""
+    return None
+
+def get_days_left_string(termin_str):
+    delta = get_days_left(termin_str)
+    if delta is None: return ""
+    if delta == 0: return "🚨 HEUTE!"
+    elif delta == 1: return "⏳ Morgen!"
+    elif delta < 0: return f"⚠️ Überfällig ({abs(delta)} Tage)"
+    else: return f"⏳ Noch {delta} Tage"
 
 def is_within_next_fortnight(termin_str):
-    if not termin_str: return False
-    now = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0)
-    max_date = now + timedelta(days=14)
-    match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', str(termin_str))
-    if match:
-        try:
-            task_date = datetime.strptime(match.group(0), '%d.%m.%Y')
-            return now <= task_date <= max_date
-        except ValueError: return False
-    return False
+    delta = get_days_left(termin_str)
+    if delta is None: return False
+    return 0 <= delta <= 14
+
+# =========================================================================
+# MITTEILUNGS-PLANER (CHECKER)
+# =========================================================================
+def check_and_send_deadline_notifications():
+    if "tasks" not in st.session_state or not st.session_state.tasks:
+        return
+        
+    for t in st.session_state.tasks:
+        t_id = t.get("id")
+        if t_id and t_id not in st.session_state.notified_task_ids:
+            days_left = get_days_left(t.get("termin"))
+            
+            if days_left is not None and 0 <= days_left <= 2:
+                fach = t.get("title", "Aufgabe")
+                thema = t.get("summary", "")
+                typ = t.get("type", "Aufgabe")
+                name = st.session_state.user_id
+                
+                if days_left == 0:
+                    zeit_text = "ist HEUTE fällig!"
+                elif days_left == 1:
+                    zeit_text = "ist morgen fällig!"
+                else:
+                    zeit_text = f"ist in nur noch {days_left} Tagen!"
+                
+                title_msg = f"🐊 StudyTutor Pro Mitteilung"
+                body_msg = f"{name}, nur noch so viel Zeit: Dein(e) {typ} in {fach} ({thema}) {zeit_text} ⏳"
+                
+                trigger_browser_notification(title_msg, body_msg)
+                st.session_state.notified_task_ids.append(t_id)
 
 # =========================================================================
 # PERSISTENZ-SYSTEM (SUPABASE)
@@ -210,7 +300,7 @@ def process_user_input(input_text, uploaded_image=None):
         2. Generiere NIEMALS automatisch ungefragt einen mehrtägigen Lernplan (keine Einträge mit Typ 'Lernplan' oder "Tag 1, Tag 2"-Stufen erzeugen), AUSSER der User verlangt explizit in seiner Nachricht einen Lernplan (z.B. "Erstelle mir einen Lernplan für...").
         3. Der 'summary'-Wert eines Tests/einer Hausaufgabe darf NIEMALS Bezeichnungen wie "Tag X" enthalten! Er muss sauber das Thema oder die Arbeit benennen (z.B. "Deutsch-Test" oder "Schularbeit zu Thema X").
         4. Wenn der User explizit nach Karteikarten (Flashcards) fragt (z.B. "Erstelle Karteikarten zu Thema X"), befüllst du das optionale Array 'flashcards_to_add'.
-           WICHTIG FÜR DIE ANTWORTEN DER KARTEIKARTEN: Die Antworten MÜSSEN extrem einfach, super kurz (maximal 1-2 Sätze) und in einfacher Schülersprache geschrieben sein. Vermeide komplizierte Schachtelsätze oder unnötige Fachwörter!
+           WICHTIG FÜR DIE ANTWORTEN DER KARTEIKARTEN: Die Antworten MÜSSEN extrem einfach, super kurz (maximal 1-2 Sätze) und in einfacher Schülersprache geschrieben sein. Vermeide komplizierte Schachtelsätze oder unnötige Fachwörter! Es muss sich an den hochgeladenen Schularbeitsstoff anpassen: Einfacher Stoff für Erstklässler wird super simpel erklärt, komplexerer Stoff für höhere Stufen wird ebenfalls logisch, anschaulich und verständlich wie von einem guten Lehrer erklärt, ohne zu komplex zu sein.
 
         Antworte AUSSCHLIESSLICH im validen JSON-Format:
         {{
@@ -221,12 +311,12 @@ def process_user_input(input_text, uploaded_image=None):
               "type": "Test" oder "Hausaufgabe" oder "Lernplan",
               "summary": "Sauberer Titel (NUR falls explizit gewünscht mit 'Tag X:' beginnen!)",
               "prioritaet": "🚨 Hoch" oder "🟡 Mittel" oder "🟢 Niedrig",
-              "termin": "DD.MM.YYYY"  // MUSS MATHEMATISCH EXAKT BERECHNET SEIN!
+              "termin": "DD.MM.YYYY"
             }}
           ],
           "tasks_to_delete": [],
-          "grade_to_add": {{ "subject": "Fachname", "grade": 4, "note_label": "Schularbeit" }}, // optional
-          "flashcards_to_add": [ // optional
+          "grade_to_add": {{ "subject": "Fachname", "grade": 4, "note_label": "Schularbeit" }},
+          "flashcards_to_add": [
             {{ "question": "Frage / Begriff", "answer": "Antwort / Erklärung" }}
           ]
         }}
@@ -317,7 +407,10 @@ if "initialized_user" not in st.session_state or st.session_state.initialized_us
     st.session_state.card_flipped = False
     st.session_state.card_ki_response = ""
     st.session_state.card_idx = 0
+    st.session_state.notified_task_ids = []
     st.session_state.initialized_user = st.session_state.user_id
+
+check_and_send_deadline_notifications()
 
 # =========================================================================
 # SIDEBAR CONTROL CENTER
@@ -385,12 +478,13 @@ with st.sidebar:
         st.session_state.card_flipped = False
         st.session_state.card_ki_response = ""
         st.session_state.card_idx = 0
+        st.session_state.notified_task_ids = []
         st.session_state.messages = [{"role": "assistant", "content": "Zurückgesetzt."}]
         save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": 0, "grades": [], "xp": 0, "streak": 0, "flashcards": []})
         st.rerun()
 
 # =========================================================================
-# MAIN CHAT (EINHEITLICHES FORMULAR-SYSTEM FÜR TEXT & SPRACHE)
+# MAIN CHAT
 # =========================================================================
 with st.expander(f"💬 KI-Lerncoach & Mentor (Konto: {st.session_state.user_id})", expanded=True):
     for msg in st.session_state.messages[-3:]:

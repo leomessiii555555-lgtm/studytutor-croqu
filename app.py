@@ -235,12 +235,17 @@ def process_user_input(input_text, uploaded_image=None):
         wochentage = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag", "Samstag", "Sonntag"]
         heute_wochentag = wochentage[now.weekday()]
 
+        # HOCHPRÄZISE DATUMS-ANWEISUNG UM FEHLBERECHNUNGEN ZU VERHINDERN
         prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
         HEUTE IST: {heute_wochentag}, der {now_str}.
         
-        WICHTIGE ANWEISUNG ZUM DATUM:
-        Wenn der User relative Zeitangaben macht (z.B. "morgen", "übermorgen", "nächsten Freitag"), berechne das Zieldatum ausgehend von {heute_wochentag}, {now_str}.
-        Rechne mathematisch präzise!
+        STRIKTE MATHEMATISCHE DATUMS-BERECHNUNG:
+        Wenn der User relative Zeitangaben macht, berechne das exakte Datum ausgehend von heute ({now_str}):
+        - "diesen Freitag" = Freitag derselben Woche.
+        - "nächsten Freitag" / "nächste Woche Freitag" = Freitag der NÄCHSTEN Kalenderwoche. 
+          Beispiel: Wenn heute Dienstag der 09.06.2026 ist, ist "diesen Freitag" der 12.06.2026 und "nächste Woche Freitag" ist EXAKT der 19.06.2026.
+        Rechne mathematisch und kalendarisch fehlerfrei!
+        Falls der User ein Fach abkürzt (z.B. "bgeo"), ordne es dem passenden Fach zu (z.B. "Geografie").
 
         Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
         Aktuelle Aufgaben auf dem Board: {json.dumps(st.session_state.tasks, ensure_ascii=False)}
@@ -297,7 +302,6 @@ if "initialized_user" not in st.session_state or st.session_state.initialized_us
         st.session_state.handwriting_analysis = db_state.get("handwriting_analysis", "")
     else:
         st.session_state.tasks = []
-        # Sauberes, frisches Starten des Chats für die neue Konversation
         st.session_state.messages = [{"role": "assistant", "content": f"Hi {st.session_state.user_id}! 🐊 Ich habe den Chat für uns zurückgesetzt. Alles ist frisch. Wie kann ich dir heute helfen?"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
         st.session_state.completed_count = 0
@@ -402,7 +406,6 @@ if st.session_state.app_mode == "Dashboard":
             
         c_btn1, c_btn2 = st.columns([6, 1])
         with c_btn2:
-            # Funktion zum manuellen Leeren/Zurücksetzen des aktuellen Chats
             if st.button("🗑️ Reset", help="Löscht den aktuellen Chatverlauf"):
                 st.session_state.messages = [{"role": "assistant", "content": f"Hi {st.session_state.user_id}! Ich habe unseren Chat zurückgesetzt. Lass uns neu durchstarten! 🐊"}]
                 save_all_to_db()
@@ -604,7 +607,6 @@ elif st.session_state.app_mode == "Lernzentrum":
     st.html("<h1 class='gaming-title'>🎯 Kroko-Lernzentrum (Fokus-Modus)</h1>")
     
     st.write("---")
-    # BRANDNEU: Voll funktionsfähiger Stoff-Zusammenfasser mit Speech-to-Text
     st.subheader("📚 KI-Stoff-Zusammenfasser (mit Sprachnachrichten-Support)")
     with st.expander("Lade Skripte hoch oder sprich deinen Lernstoff einfach ein!", expanded=True):
         sum_text = st.text_area("Lernstoff reinkopieren:", placeholder="Füge hier dicken Text ein...", height=150)
@@ -639,7 +641,7 @@ elif st.session_state.app_mode == "Lernzentrum":
     st.write("---")
     st.subheader("✍️ Musterschrift-Gedächtnis (Schrift lernen)")
     with st.expander("Bringe Kroko deine persönliche Handschrift bei", expanded=False):
-        st.info("編 **Schreibe bitte folgenden Satz auf ein Blatt Papier und lade das Foto hoch:**\n\n*„Franz jagt im komplett verwahrlosten Taxi quer durch Bayern. Kroko lernt 12345!“*")
+        st.info("📝 **Schreibe bitte folgenden Satz auf ein Blatt Papier und lade das Foto hoch:**\n\n*„Franz jagt im komplett verwahrlosten Taxi quer durch Bayern. Kroko lernt 12345!“*")
         sample_img = st.file_uploader("Foto deiner Handschriftprobe hochladen:", type=["jpg", "jpeg", "png"])
         if st.button("Schriftprobe analysieren!") and sample_img:
             with st.spinner("Analysiere..."):

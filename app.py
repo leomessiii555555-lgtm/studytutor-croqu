@@ -3,6 +3,7 @@ import openai
 import requests
 import json
 import re
+import base64
 from datetime import datetime, timedelta
 
 # =========================================================================
@@ -25,6 +26,7 @@ st.html("""
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght=300;400;500;600;700&display=swap');
     .stApp { background-color: #fafafa; color: #1e293b; font-family: 'Inter', sans-serif; }
     [data-testid="stSidebar"] { background-color: #ffffff; border-right: 1px solid #f1f5f9; padding-top: 2rem; }
+    
     .task-card {
         background: #ffffff;
         border: 1px solid #e2e8f0;
@@ -39,12 +41,46 @@ st.html("""
     .card-info-line { font-size: 0.85rem; color: #e11d48; font-weight: 700; background: #ffe4e6; padding: 4px 8px; border-radius: 6px; display: inline-block; margin-bottom: 4px; }
     .column-header { font-size: 1.1rem; font-weight: 600; color: #334155; padding-bottom: 8px; margin-bottom: 16px; border-bottom: 2px solid #e2e8f0; }
     .countdown-badge { font-size: 0.8rem; font-weight: 600; color: #dc2626; margin-top: 4px; display: flex; align-items: center; gap: 4px; }
+    
+    .focus-box {
+        background: linear-gradient(135deg, #1e1b4b 0%, #311042 100%);
+        color: #ffffff;
+        border-radius: 16px;
+        padding: 24px;
+        margin-bottom: 24px;
+        box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        border-left: 6px solid #a855f7;
+    }
+    
+    .stat-card {
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 10px;
+        padding: 12px 16px;
+        text-align: center;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+    }
+    .stat-val { font-size: 1.5rem; font-weight: 700; color: #0f172a; }
+    .stat-lbl { font-size: 0.8rem; color: #64748b; font-weight: 500; }
+    
+    .grade-badge {
+        background: #f1f5f9;
+        padding: 6px 12px;
+        border-radius: 8px;
+        font-weight: 600;
+        display: inline-block;
+        margin: 4px;
+        border: 1px solid #cbd5e1;
+    }
 </style>
 """)
 
 # =========================================================================
-# TIMELINE- & COUNTDOWN-LOGIK
+# UTILITIES & IMAGE ENCODING
 # =========================================================================
+def encode_image(uploaded_file):
+    return base64.b64encode(uploaded_file.read()).decode('utf-8')
+
 def get_days_left_string(termin_str):
     if not termin_str: return ""
     match = re.search(r'(\d{2})\.(\d{2})\.(\d{4})', str(termin_str))
@@ -73,7 +109,7 @@ def is_within_next_fortnight(termin_str):
     return False
 
 # =========================================================================
-# PERSISTENZ-SYSTEM (SABOTAGE-SICHERES SUPABASE SYNC)
+# PERSISTENZ-SYSTEM (SUPABASE)
 # =========================================================================
 def load_from_supabase():
     headers = {"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"}
@@ -82,12 +118,8 @@ def load_from_supabase():
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
             res_json = response.json()
-            if res_json:
-                return res_json[0].get('app_state')
-        else:
-            st.sidebar.error(f"❌ DB-Ladefehler: {response.status_code}")
-    except Exception as e: 
-        st.sidebar.error(f"🚨 Lade-Exception: {e}")
+            if res_json: return res_json[0].get('app_state')
+    except Exception: pass
     return None
 
 def save_to_supabase(state_data):
@@ -101,38 +133,17 @@ def save_to_supabase(state_data):
     url = f"{SUPABASE_URL}/rest/v1/studytutor_data"
     payload = {"id": USER_ID, "app_state": state_data, "updated_at": datetime.utcnow().isoformat()}
     try: 
-        # 1. Versuch via POST (Upsert)
         res = requests.post(url, headers=headers, json=payload)
-        if res.status_code in [200, 201]:
-            st.sidebar.success("☁️ Daten in Cloud gesichert!")
-        else:
-            # 2. Versuch via PATCH (Falls PostgREST den Upsert verweigert)
+        if res.status_code not in [200, 201]:
             patch_url = f"{SUPABASE_URL}/rest/v1/studytutor_data?id=eq.{USER_ID}"
-            patch_res = requests.patch(patch_url, headers=headers, json={"app_state": state_data, "updated_at": datetime.utcnow().isoformat()})
-            if patch_res.status_code in [200, 204]:
-                st.sidebar.success("☁️ Daten in Cloud aktualisiert!")
-            else:
-                # ECHTE FEHLERMELDUNG ANZEIGEN
-                st.sidebar.error(f"❌ DB-Fehler: POST {res.status_code} | PATCH {patch_res.status_code}")
-                st.sidebar.caption(f"Details: {patch_res.text}")
-    except Exception as e:
-        st.sidebar.error(f"🚨 Sync-Exception: {e}")
+            requests.patch(patch_url, headers=headers, json={"app_state": state_data, "updated_at": datetime.utcnow().isoformat()})
+    except Exception: pass
 
 # =========================================================================
-# SINGLE-BRAIN REASONING ENGINE
+# MULTI-MODAL REASONING ENGINE (TEXT, AUDIO & VISION)
 # =========================================================================
-def transcribe_audio(audio_file):
-    try:
-        audio_data = audio_file.read()
-        if not audio_data: return None
-        transcript = client.audio.transcriptions.create(model="whisper-1", file=("audio.wav", audio_data, "audio/wav"))
-        return transcript.text
-    except Exception as e: 
-        st.error(f"Audio-Fehler: {e}")
-        return None
-
-def process_user_input(input_text):
-    if not input_text or input_text.strip().lower() in ["you", "you.", ""]: return
+def process_user_input(input_text, uploaded_image=None):
+    if (not input_text or input_text.strip() == "") and not uploaded_image: return
 
     now = datetime.now()
     now_str = now.strftime("%d.%m.%Y")
@@ -140,74 +151,101 @@ def process_user_input(input_text):
     weekday_str = wochentage_map[now.weekday()]
 
     tasks_context = [{"id": t.get("id"), "title": t.get("title"), "summary": t.get("summary"), "type": t.get("type"), "termin": t.get("termin")} for t in st.session_state.tasks]
+    grades_context = st.session_state.grades
 
     prompt = f"""Du bist der integrierte KI-Lerncoach für das Schüler-Board 'StudyTutor Pro'.
-    Deine Aufgabe ist es, die User-Nachricht zu beantworten UND gleichzeitig im exakt selben Moment das Aufgabenboard im Hintergrund fehlerfrei zu steuern.
+    Deine Aufgabe ist es, Schüler strategisch zu beraten, Noten zu tracken, hochgeladenen Stoff zu analysieren UND das Dashboard zu steuern.
 
-    HEUTIGES DATUM KONTEXT: {weekday_str}, der {now_str}
+    HEUTIGES DATUM: {weekday_str}, der {now_str}
     Verfügbare Schulfächer: {', '.join(st.session_state.subjects)}
 
-    Aktuelle Aufgaben auf dem Board:
-    {json.dumps(tasks_context, ensure_ascii=False)}
+    Bisherige Noten des Schülers: {json.dumps(grades_context, ensure_ascii=False)}
+    Aktuelle Aufgaben auf dem Board: {json.dumps(tasks_context, ensure_ascii=False)}
 
     User-Nachricht: "{input_text}"
 
-    STRIKTE REGELN FÜR REASONING UND DATUM:
-    1. Berechne das Zieldatum im Format DD.MM.YYYY mathematisch präzise basierend auf heute ({now_str}, {weekday_str}).
-    2. Wenn heute {weekday_str} ist und der User sagt "nächste Woche Mittwoch", meint er NICHT den morgigen bzw. diese Woche stattfindenden Mittwoch, sondern den Mittwoch der DARAUFFOLGENDEN Woche. Rechne das exakt aus!
-    3. Wenn der User sagt, eine Aufgabe sei erledigt, findet nicht statt oder soll gelöscht werden, suche die passende ID aus der Liste der 'Aktuellen Aufgaben' heraus und setze sie in 'tasks_to_delete'.
-    4. Schularbeiten, Tests, Klausuren, Prüfungen haben IMMER den Typ "Test".
+    STRIKTE RECHELN FÜR PROAKTIVE LERNPLANUNG & NOTEN:
+    1. Wenn der User eine Note meldet (z.B. eine 4 oder 5), speichere diese im Feld 'grade_to_add'.
+    2. Wenn eine Note schlecht ist (z.B. 4 oder 5) ODER der User explizit nach Hilfe für ein Fach fragt, generiere AUTOMATISCH einen mehrtägigen, adaptiven Lernplan (z.B. über die nächsten 5-8 Tage verteilt). Packe JEDEN Tag als eigenen Eintrag in die 'tasks_to_add' Liste mit Typ 'Lernplan' und berechnetem Zieldatum!
+    3. Falls ein Bild mitgeschickt wurde, analysiere den Text/Lernstoff auf dem Bild penibel und erstelle daraus passende Hausaufgaben oder Lernpläne.
 
-    Antworte AUSSCHLIESSLICH mit einem validen JSON-Objekt. Verwende kein ```json oder sonstigen Text davor/danach.
-    Format:
+    Antworte AUSSCHLIESSLICH im validen JSON-Format:
     {{
-      "assistant_reply": "Deine direkte, motivierende Antwort an den Schüler (z.B. 'Ich habe deine Mathe-Schularbeit für nächsten Mittwoch, den 17.06., eingetragen! 🐊')",
+      "assistant_reply": "Deine persönliche, einfühlsame und motivierende Antwort/Planvorstellung für den Schüler.",
       "tasks_to_add": [
         {{
-          "title": "Fachname (MUSS exakt aus der Liste der verfügbaren Fächer sein)",
+          "title": "Fachname (MUSS exakt aus der Liste sein)",
           "type": "Test" oder "Hausaufgabe" oder "Lernplan",
-          "summary": "Prägnante Kurzbeschreibung (z.B. Mathe-Schularbeit)",
+          "summary": "z.B. Tag 1: Bruchrechnen Grundlagen",
+          "prioritaet": "🚨 Hoch" oder "🟡 Mittel" oder "🟢 Niedrig",
           "termin": "DD.MM.YYYY"
         }}
       ],
-      "tasks_to_delete": ["Liste von IDs, die restlos gelöscht werden sollen"]
+      "tasks_to_delete": [],
+      "grade_to_add": {{ "subject": "Fachname", "grade": 4, "note_label": "Schularbeit" }} // optional, nur wenn Note genannt wurde
     }}
     """
+
+    # Multi-modaler Payload-Aufbau (Unterstützt Text und Bild)
+    content_payload = [{"type": "text", "text": prompt}]
+    
+    if uploaded_image:
+        base64_image = encode_image(uploaded_image)
+        content_payload.append({
+            "type": "image_url",
+            "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}
+        })
 
     try:
         response = client.chat.completions.create(
             model="gpt-4o-mini", 
-            messages=[{"role": "user", "content": prompt}], 
+            messages=[{"role": "user", "content": content_payload}], 
             temperature=0.1,
             response_format={"type": "json_object"}
         )
-        
         result = json.loads(response.choices[0].message.content.strip())
         
+        # 1. Noten-Verarbeitung
+        if result.get("grade_to_add"):
+            g = result["grade_to_add"]
+            st.session_state.grades.append({
+                "subject": g.get("subject"),
+                "grade": g.get("grade"),
+                "label": g.get("note_label", "Klausur"),
+                "date": now_str
+            })
+
+        # 2. Löschungen
         if result.get("tasks_to_delete"):
             st.session_state.tasks = [t for t in st.session_state.tasks if t.get("id") not in result["tasks_to_delete"]]
             
+        # 3. Neuzugänge (inklusive der generierten Mehrtagespläne)
         if result.get("tasks_to_add"):
-            for t in result["tasks_to_add"]:
-                if not any(old.get("title") == t["title"] and old.get("summary") == t["summary"] and old.get("termin") == t["termin"] for old in st.session_state.tasks):
-                    st.session_state.tasks.insert(0, {
-                        "title": t.get("title"),
-                        "type": t.get("type", "Hausaufgabe"),
-                        "summary": t.get("summary"),
-                        "notes": input_text,
-                        "termin": t.get("termin"),
-                        "erstellt_am": now_str,
-                        "id": f"ai_{datetime.utcnow().timestamp()}_{t.get('title')}"
-                    })
+            for i, t in enumerate(result["tasks_to_add"]):
+                st.session_state.tasks.insert(0, {
+                    "title": t.get("title"),
+                    "type": t.get("type", "Lernplan"),
+                    "summary": t.get("summary"),
+                    "prioritaet": t.get("prioritaet", "🟡 Mittel"),
+                    "notes": "Automatisch generierter KI-Lernschritt." if t.get("type") == "Lernplan" else input_text,
+                    "termin": t.get("termin"),
+                    "erstellt_am": now_str,
+                    "id": f"ai_{datetime.utcnow().timestamp()}_{i}_{t.get('title')}"
+                })
         
-        st.session_state.messages.append({"role": "user", "content": input_text})
-        st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Erledigt!")})
+        display_text = input_text if input_text and input_text.strip() != "" else "📸 [Bild hochgeladen]"
+        st.session_state.messages.append({"role": "user", "content": display_text})
+        st.session_state.messages.append({"role": "assistant", "content": result.get("assistant_reply", "Lernplan generiert und angepasst! 🐊")})
         
-        save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
-        
+        save_to_supabase({
+            "tasks": st.session_state.tasks, 
+            "messages": st.session_state.messages, 
+            "subjects": st.session_state.subjects,
+            "completed_count": st.session_state.get("completed_count", 0),
+            "grades": st.session_state.grades
+        })
     except Exception as e: 
-        st.error(f"Reasoning-Engine Fehler: {e}")
-        
+        st.error(f"Reasoning-Schnittstellen Fehler: {e}")
     st.rerun()
 
 # =========================================================================
@@ -219,10 +257,14 @@ if "initialized" not in st.session_state:
         st.session_state.tasks = db_state.get("tasks", [])
         st.session_state.messages = db_state.get("messages", [])
         st.session_state.subjects = db_state.get("subjects", DEFAULT_SUBJECTS)
+        st.session_state.completed_count = db_state.get("completed_count", 0)
+        st.session_state.grades = db_state.get("grades", [])
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Dein Pro-Board läuft. Lass uns testen, ob die Cloud hält!"}]
+        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Ich bin dein intelligenter Mentor. Schick mir deine Noten oder fotografiere deinen Lernstoff!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
+        st.session_state.completed_count = 0
+        st.session_state.grades = []
     st.session_state.initialized = True
 
 # =========================================================================
@@ -232,47 +274,75 @@ with st.sidebar:
     st.title("StudyTutor Pro 🐊")
     st.write("---")
     
-    st.subheader("🔍 Workspace filtern")
-    filter_subject = st.selectbox("Zeige nur Aufgaben für:", ["Alle Fächer"] + st.session_state.subjects)
+    st.subheader("🎯 Fokus-Modus")
+    if st.session_state.tasks:
+        task_options = {f"{t['title']}: {t['summary']}": t['id'] for t in st.session_state.tasks}
+        selected_focus_label = st.selectbox("Wähle deine Hauptaufgabe:", ["Kein Fokus"] + list(task_options.keys()))
+        selected_focus_id = task_options[selected_focus_label] if selected_focus_label != "Kein Fokus" else None
+    else:
+        selected_focus_id = None
+        st.caption("Keine Aufgaben.")
+        
     st.write("---")
-    
-    audio_file = st.audio_input("🎙️ Sprachbefehl aufnehmen")
-    if audio_file and st.button("🚀 Sprachnachricht senden", use_container_width=True):
-        text_from_speech = transcribe_audio(audio_file)
-        if text_from_speech: process_user_input(text_from_speech)
+    st.subheader("🔍 Filter")
+    filter_subject = st.selectbox("Fach auswählen:", ["Alle Fächer"] + st.session_state.subjects)
     st.write("---")
 
-    with st.expander("➕ Aufgabe schnell eintippen"):
-        with st.form("manual_quick_form", clear_on_submit=True):
-            m_sub = st.selectbox("Fach", st.session_state.subjects)
-            m_type = st.selectbox("Typ", ["Hausaufgabe", "Test", "Lernplan"])
-            m_sum = st.text_input("Was ist zu tun?")
-            m_date = st.date_input("Bis wann?", datetime.now() + timedelta(days=1))
-            if st.form_submit_button("Direkt eintragen"):
-                st.session_state.tasks.insert(0, {
-                    "title": m_sub, "type": m_type, "summary": m_sum, "notes": "Manuell eingetragen.",
-                    "termin": m_date.strftime('%d.%m.%Y'), "erstellt_am": datetime.now().strftime("%d.%m.%Y"),
-                    "id": f"manual_{datetime.utcnow().timestamp()}"
-                })
-                save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
-                st.rerun()
-
+    # NEU: IMAGE UPLOADER DIREKT IM PROZESS
+    st.subheader("📸 Lernstoff einsenden")
+    uploaded_img = st.file_uploader("Bild/Angabe hochladen:", type=["jpg", "jpeg", "png"])
     st.write("---")
-    if st.button("🗑️ Alle Daten löschen", use_container_width=True):
+
+    if st.button("🗑️ Reset", use_container_width=True):
         st.session_state.tasks = []
+        st.session_state.completed_count = 0
+        st.session_state.grades = []
         st.session_state.messages = [{"role": "assistant", "content": "Zurückgesetzt."}]
-        save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects})
+        save_to_supabase({"tasks": [], "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": 0, "grades": []})
         st.rerun()
 
 # =========================================================================
-# MAIN CHAT EXPANDER
+# MAIN CHAT & VISION SENDER
 # =========================================================================
-with st.expander("💬 KI-Lerncoach Chatverlauf", expanded=True):
+with st.expander("💬 KI-Lerncoach & Mentor", expanded=True):
     for msg in st.session_state.messages[-3:]:
         with st.chat_message(msg["role"]): st.write(msg["content"])
-    if text_input := st.chat_input("Schreib deine Aufgaben hier hinein..."):
-        process_user_input(text_input)
+    
+    chat_text = st.chat_input("Schreib mir oder lade links ein Bild hoch...")
+    if chat_text or (uploaded_img and st.sidebar.button("🚀 Bild abschicken", use_container_width=True)):
+        process_user_input(chat_text, uploaded_img)
 
+# =========================================================================
+# LIVE DASHBOARD STATS
+# =========================================================================
+stat_col1, stat_col2, stat_col3, stat_col4 = st.columns(4)
+with stat_col1:
+    st.html(f"<div class='stat-card'><div class='stat-val' style='color:#ef4444;'>{len([t for t in st.session_state.tasks if t.get('type')=='Test'])}</div><div class='stat-lbl'>OFFENE TESTS</div></div>")
+with stat_col2:
+    st.html(f"<div class='stat-card'><div class='stat-val' style='color:#f59e0b;'>{len([t for t in st.session_state.tasks if t.get('type')=='Hausaufgabe'])}</div><div class='stat-lbl'>HAUSAUFGABEN</div></div>")
+with stat_col3:
+    st.html(f"<div class='stat-card'><div class='stat-val' style='color:#10b981;'>{len([t for t in st.session_state.tasks if t.get('type')=='Lernplan'])}</div><div class='stat-lbl'>LERNPLAN SCHRITTE</div></div>")
+with stat_col4:
+    st.html(f"<div class='stat-card'><div class='stat-val' style='color:#3b82f6;'>{st.session_state.completed_count} ✅</div><div class='stat-lbl'>ERLEDIGT</div></div>")
+
+# =========================================================================
+# NEU: LIVE NOTENSPIEGEL ANZEIGE
+# =========================================================================
+if st.session_state.grades:
+    st.write("### 📝 Mein aktueller Notenspiegel")
+    grade_html = ""
+    for g in st.session_state.grades:
+        color = "#10b981" if g['grade'] <= 2 else ("#f59e0b" if g['grade'] == 3 else "#ef4444")
+        grade_html += f"<div class='grade-badge' style='border-left: 4px solid {color};'><b>{g['subject']}</b>: Note {g['grade']} <span style='font-size:0.75rem; color:#64748b;'>({g['label']})</span></div>"
+    st.html(f"<div>{grade_html}</div>")
+
+# Sniper-Fokus Box
+if selected_focus_id:
+    focus_task = next((t for t in st.session_state.tasks if t['id'] == selected_focus_id), None)
+    if focus_task:
+        st.html(f"<div class='focus-box'><div style='font-size: 0.85rem; font-weight: 700; color: #c084fc; margin-bottom: 4px;'>🎯 AKTUELLER REINZOOM-FOKUS</div><div style='font-size: 1.6rem; font-weight: 700; margin-bottom: 4px;'>{focus_task['title']} — {focus_task['summary']}</div><div>Fällig am: {focus_task.get('termin')} | Prio: {focus_task.get('prioritaet')}</div></div>")
+
+# Filterung anwenden
 active_tasks = st.session_state.tasks if filter_subject == "Alle Fächer" else [t for t in st.session_state.tasks if t.get("title") == filter_subject]
 
 # =========================================================================
@@ -281,57 +351,40 @@ active_tasks = st.session_state.tasks if filter_subject == "Alle Fächer" else [
 st.write(f"### 📊 Mein Workspace ({filter_subject})")
 col1, col2, col3 = st.columns(3)
 
-# SPALTE 1: ARBEITEN
 with col1:
     st.html("<div class='column-header'><span style='color: #ef4444;'>🔴</span> Tests & Arbeiten</div>")
     tests = [t for t in active_tasks if t.get("type") == "Test"]
     if not tests: st.caption("Keine Tests geplant. 🎉")
     for t in tests:
-        countdown = get_days_left_string(t.get('termin', ''))
-        cd_html = f"<div class='countdown-badge'>{countdown}</div>" if countdown else ""
-        st.html(f"<div class='task-card' style='border-left-color: #ef4444;'><div class='card-info-line'>📅 {t.get('termin')}</div><div class='card-title'>{t['title']}</div><div class='card-summary'>{t['summary']}</div>{cd_html}</div>")
-        
-        btn_col1, btn_col2 = st.columns(2)
-        with btn_col1:
-            with st.popover("📝 Info", use_container_width=True): st.info(t["notes"])
-        with btn_col2:
-            if st.button("✅ Erledigt", key=f"del_{t['id']}", use_container_width=True):
-                st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != t['id']]
-                save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
-                st.rerun()
+        st.html(f"<div class='task-card' style='border-left-color: #ef4444;'><div class='card-info-line'>📅 {t.get('termin')} | {t.get('prioritaet')}</div><div class='card-title'>{t['title']}</div><div class='card-summary'>{t['summary']}</div></div>")
+        if st.button("✅ Erledigt", key=f"del_{t['id']}", use_container_width=True):
+            st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != t['id']]
+            st.session_state.completed_count += 1
+            save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades})
+            st.rerun()
 
-# SPALTE 2: TIMELINE (NUR NÄCHSTE 14 TAGE)
 with col2:
     st.html("<div class='column-header'><span style='color: #f59e0b;'>🟡</span> Diese & Nächste Woche</div>")
     upcoming = [t for t in active_tasks if t.get("type") in ["Hausaufgabe", "Test"] and is_within_next_fortnight(t.get("termin", ""))]
-    
-    if not upcoming: st.caption("Alles erledigt für die nächsten Wochen! 😎")
+    if not upcoming: st.caption("Alles erledigt! 😎")
     for w in upcoming:
         is_test = w.get("type") == "Test"
         card_color = "#ef4444" if is_test else "#f59e0b"
-        prefix = "⚠️ TEST | " if is_test else "📝 HÜ | "
-        countdown = get_days_left_string(w.get('termin', ''))
-        cd_html = f"<div class='countdown-badge'>{countdown}</div>" if countdown else ""
-        
-        st.html(f"<div class='task-card' style='border-left-color: {card_color};'><div class='card-info-line' style='color:#b45309; background:#fef3c7;'>📅 {w.get('termin')}</div><div class='card-title'>{prefix}{w['title']}</div><div class='card-summary'>{w['summary']}</div>{cd_html}</div>")
-        
-        btn_col1, btn_col2 = st.columns(2)
-        with btn_col1:
-            with st.popover("📝 Info", use_container_width=True): st.info(w["notes"])
-        with btn_col2:
-            if st.button("✅ Erledigt", key=f"del_up_{w['id']}", use_container_width=True):
-                st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != w['id']]
-                save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
-                st.rerun()
+        st.html(f"<div class='task-card' style='border-left-color: {card_color};'><div class='card-info-line' style='color:#b45309; background:#fef3c7;'>📅 {w.get('termin')} | {w.get('prioritaet')}</div><div class='card-title'>{w['title']}</div><div class='card-summary'>{w['summary']}</div></div>")
+        if st.button("✅ Erledigt", key=f"del_up_{w['id']}", use_container_width=True):
+            st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != w['id']]
+            st.session_state.completed_count += 1
+            save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades})
+            st.rerun()
 
-# SPALTE 3: LERNPLAN
 with col3:
     st.html("<div class='column-header'><span style='color: #10b981;'>🟢</span> Aktivierter Lernplan</div>")
     plan = [t for t in active_tasks if t.get("type") == "Lernplan"]
     if not plan: st.caption("Kein aktiver Lernplan.")
     for p in plan:
-        st.html(f"<div class='task-card' style='border-left-color: #10b981;'><div class='card-title'>{p['title']}</div><div class='card-summary'>{p['summary']}</div></div>")
-        if st.button("✅ Plan beenden", key=f"del_p_{p['id']}", use_container_width=True):
+        st.html(f"<div class='task-card' style='border-left-color: #10b981;'><div class='card-info-line' style='color:#047857; background:#d1fae5;'>📅 Bis {p.get('termin')} | {p.get('prioritaet')}</div><div class='card-title'>{p['title']}</div><div class='card-summary'>{p['summary']}</div></div>")
+        if st.button("✅ Schritt erledigt", key=f"del_p_{p['id']}", use_container_width=True):
             st.session_state.tasks = [task for task in st.session_state.tasks if task['id'] != p['id']]
-            save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects})
+            st.session_state.completed_count += 1
+            save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades})
             st.rerun()

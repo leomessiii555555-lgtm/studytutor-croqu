@@ -15,7 +15,6 @@ SUPABASE_ANON_KEY = st.secrets["SUPABASE_ANON_KEY"]
 
 client = openai.OpenAI(api_key=OPENAI_API_KEY)
 
-USER_ID = "alex_soldat"
 DEFAULT_SUBJECTS = ["Mathe", "Deutsch", "Englisch", "Geschichte", "Biologie", "Physik", "Chemie", "Geografie", "Informatik"]
 
 st.set_page_config(page_title="StudyTutor Pro 🐊", layout="wide", initial_sidebar_state="expanded")
@@ -76,6 +75,30 @@ st.html("""
 """)
 
 # =========================================================================
+# GLOBAL PROFIL MANAGEMENT & KONTEN-ABRUF
+# =========================================================================
+def get_all_registered_profiles():
+    """Holt alle existierenden IDs aus der Supabase-Tabelle, damit wir sie im Dropdown listen können."""
+    headers = {"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"}
+    url = f"{SUPABASE_URL}/rest/v1/studytutor_data?select=id"
+    try:
+        response = requests.get(url, headers=headers)
+        if response.status_code == 200:
+            profiles = [row["id"] for row in response.json() if row.get("id")]
+            if "Alex" not in profiles:
+                profiles.insert(0, "Alex")
+            return sorted(list(set(profiles)))
+    except Exception: pass
+    return ["Alex"]
+
+# Initialisiere Profilliste in der Session
+if "available_profiles" not in st.session_state:
+    st.session_state.available_profiles = get_all_registered_profiles()
+
+if "user_id" not in st.session_state:
+    st.session_state.user_id = st.session_state.available_profiles[0]
+
+# =========================================================================
 # UTILITIES & IMAGE ENCODING
 # =========================================================================
 def encode_image(uploaded_file):
@@ -113,7 +136,7 @@ def is_within_next_fortnight(termin_str):
 # =========================================================================
 def load_from_supabase():
     headers = {"apikey": SUPABASE_ANON_KEY, "Authorization": f"Bearer {SUPABASE_ANON_KEY}"}
-    url = f"{SUPABASE_URL}/rest/v1/studytutor_data?id=eq.{USER_ID}&select=app_state"
+    url = f"{SUPABASE_URL}/rest/v1/studytutor_data?id=eq.{st.session_state.user_id}&select=app_state"
     try:
         response = requests.get(url, headers=headers)
         if response.status_code == 200:
@@ -131,11 +154,11 @@ def save_to_supabase(state_data):
         "Prefer": "on-conflict=id"
     }
     url = f"{SUPABASE_URL}/rest/v1/studytutor_data"
-    payload = {"id": USER_ID, "app_state": state_data, "updated_at": datetime.utcnow().isoformat()}
+    payload = {"id": st.session_state.user_id, "app_state": state_data, "updated_at": datetime.utcnow().isoformat()}
     try: 
         res = requests.post(url, headers=headers, json=payload)
         if res.status_code not in [200, 201]:
-            patch_url = f"{SUPABASE_URL}/rest/v1/studytutor_data?id=eq.{USER_ID}"
+            patch_url = f"{SUPABASE_URL}/rest/v1/studytutor_data?id=eq.{st.session_state.user_id}"
             requests.patch(patch_url, headers=headers, json={"app_state": state_data, "updated_at": datetime.utcnow().isoformat()})
     except Exception: pass
 
@@ -173,7 +196,7 @@ def process_user_input(input_text, uploaded_image=None):
     User-Nachricht: "{input_text}"
 
     STRIKTE TRENNUNGS-REGELN FÜR DIE STRUKTUR:
-    1. Wenn der User einen neuen TEST oder eine HAUSAUFGABE meldet, erstelle EINEN Eintrag mit Typ 'Test' oder 'Hausaufgabe'. Der 'summary'-Wert dieses Eintrags darf NIEMALS Bezeichnungen wie "Tag X" enthalten! Er muss sauber den Test benennen (z.B. "Deutsch-Test" oder "Schularbeit zu Thema X").
+    1. Wenn der User einen neuen TEST oder eine HAUSAUFGABEN meldet, erstelle EINEN Eintrag mit Typ 'Test' oder 'Hausaufgabe'. Der 'summary'-Wert dieses Eintrags darf NIEMALS Bezeichnungen wie "Tag X" enthalten! Er muss sauber den Test benennen (z.B. "Deutsch-Test" oder "Schularbeit zu Thema X").
     2. Generiere zusätzlich für jeden angekündigten Test AUTOMATISCH einen mehrtägigen Lernplan (verteilt auf die Tage VOR dem Test). Jeder dieser Vorbereitungsschritte kommt als EIGENER Eintrag in die Liste mit Typ 'Lernplan'. NUR hier im Typ 'Lernplan' verwendest du Bezeichnungen wie "Tag 1: Grundlagen wiederholen", "Tag 2: Textverständnis" etc.
     3. Wenn der User eine Note meldet (z.B. eine 4 oder 5), speichere diese im Feld 'grade_to_add' und generiere ebenfalls einen mehrtägigen Lernplan (Typ 'Lernplan') zur Notenverbesserung.
 
@@ -224,7 +247,6 @@ def process_user_input(input_text, uploaded_image=None):
             
         if result.get("tasks_to_add"):
             for i, t in enumerate(result["tasks_to_add"]):
-                # STRIKTE RE-ACTIVATED DEDUPLIZIERUNGSSPPERRE
                 if not any(old.get("title") == t.get("title") and old.get("summary") == t.get("summary") and old.get("termin") == t.get("termin") for old in st.session_state.tasks):
                     st.session_state.tasks.insert(0, {
                         "title": t.get("title"), "type": t.get("type", "Lernplan"), "summary": t.get("summary"),
@@ -247,9 +269,9 @@ def process_user_input(input_text, uploaded_image=None):
     st.rerun()
 
 # =========================================================================
-# INITIALISIERUNG
+# ACCOUNT-SPEZIFISCHE LIVE-INITIALISIERUNG
 # =========================================================================
-if "initialized" not in st.session_state:
+if "initialized_user" not in st.session_state or st.session_state.initialized_user != st.session_state.user_id:
     db_state = load_from_supabase()
     if db_state:
         st.session_state.tasks = db_state.get("tasks", [])
@@ -259,11 +281,11 @@ if "initialized" not in st.session_state:
         st.session_state.grades = db_state.get("grades", [])
     else:
         st.session_state.tasks = []
-        st.session_state.messages = [{"role": "assistant", "content": "Hi! 🐊 Ich bin dein intelligenter Mentor. Schick mir deine Noten, sprich mit mir oder fotografiere deinen Lernstoff!"}]
+        st.session_state.messages = [{"role": "assistant", "content": f"Hi {st.session_state.user_id}! 🐊 Ich bin dein intelligenter Mentor. Schick mir deine Noten, sprich mit mir oder fotografiere deinen Lernstoff!"}]
         st.session_state.subjects = DEFAULT_SUBJECTS
         st.session_state.completed_count = 0
         st.session_state.grades = []
-    st.session_state.initialized = True
+    st.session_state.initialized_user = st.session_state.user_id
 
 # =========================================================================
 # SIDEBAR CONTROL CENTER
@@ -272,6 +294,38 @@ with st.sidebar:
     st.title("StudyTutor Pro 🐊")
     st.write("---")
     
+    # INTERAKTIVES MULTI-PROFIL MANAGEMENT
+    st.subheader("👥 Profil auswählen")
+    
+    # Finde den aktuellen Index des Profils in der Liste für Streamlit
+    try:
+        current_index = st.session_state.available_profiles.index(st.session_state.user_id)
+    except ValueError:
+        current_index = 0
+        
+    selected_user = st.selectbox(
+        "Wer lernt gerade?", 
+        options=st.session_state.available_profiles, 
+        index=current_index
+    )
+    
+    if selected_user != st.session_state.user_id:
+        st.session_state.user_id = selected_user
+        st.rerun()
+        
+    # Neues Profil hinzufügen Expander direkt auf der Seite
+    with st.expander("➕ Neues Profil anlegen"):
+        new_profile_name = st.text_input("Name eingeben:", key="new_profile_input_field")
+        if st.button("Konto erstellen", use_container_width=True):
+            clean_name = new_profile_name.strip()
+            if clean_name != "" and clean_name not in st.session_state.available_profiles:
+                st.session_state.available_profiles.append(clean_name)
+                st.session_state.available_profiles = sorted(st.session_state.available_profiles)
+                st.session_state.user_id = clean_name
+                st.success(f"Profil für {clean_name} erstellt!")
+                st.rerun()
+                
+    st.write("---")
     st.subheader("🎯 Fokus-Modus")
     if st.session_state.tasks:
         task_options = {f"{t['title']}: {t['summary']}": t['id'] for t in st.session_state.tasks}
@@ -310,7 +364,7 @@ with st.sidebar:
 # =========================================================================
 # MAIN CHAT
 # =========================================================================
-with st.expander("💬 KI-Lerncoach & Mentor", expanded=True):
+with st.expander(f"💬 KI-Lerncoach & Mentor (Konto: {st.session_state.user_id})", expanded=True):
     for msg in st.session_state.messages[-3:]:
         with st.chat_message(msg["role"]): st.write(msg["content"])
     
@@ -333,7 +387,7 @@ with stat_col4:
 
 # NOTENSPIEGEL
 if st.session_state.grades:
-    st.write("### 📝 Mein aktueller Notenspiegel")
+    st.write(f"### 📝 Aktueller Notenspiegel von {st.session_state.user_id}")
     grade_html = ""
     for g in st.session_state.grades:
         color = "#10b981" if g['grade'] <= 2 else ("#f59e0b" if g['grade'] == 3 else "#ef4444")
@@ -352,7 +406,7 @@ active_tasks = st.session_state.tasks if filter_subject == "Alle Fächer" else [
 # =========================================================================
 # LIVE DASHBOARD DISPLAY
 # =========================================================================
-st.write(f"### 📊 Mein Workspace ({filter_subject})")
+st.write(f"### 📊 Workspace von {st.session_state.user_id} ({filter_subject})")
 col1, col2, col3 = st.columns(3)
 
 with col1:

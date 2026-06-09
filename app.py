@@ -97,13 +97,17 @@ if "available_profiles" not in st.session_state:
 if "user_id" not in st.session_state:
     st.session_state.user_id = st.session_state.available_profiles[0]
 
-# Initialisiere zusätzliche Session States für neue Features
+# Initialisiere zusätzliche Session States für alle Features
 if "xp" not in st.session_state: st.session_state.xp = 0
 if "streak" not in st.session_state: st.session_state.streak = 0
 if "flashcards" not in st.session_state: st.session_state.flashcards = []
 if "card_flipped" not in st.session_state: st.session_state.card_flipped = False
 if "card_ki_response" not in st.session_state: st.session_state.card_ki_response = ""
 if "card_idx" not in st.session_state: st.session_state.card_idx = 0
+
+# Flags für stabilisiertes Audio-Handling
+if "main_audio_ready" not in st.session_state: st.session_state.main_audio_ready = False
+if "card_audio_ready" not in st.session_state: st.session_state.card_audio_ready = False
 
 # =========================================================================
 # UTILITIES & IMAGE ENCODING
@@ -182,10 +186,6 @@ def transcribe_audio(audio_file):
 
 def process_user_input(input_text, uploaded_image=None):
     if (not input_text or input_text.strip() == "") and not uploaded_image: return
-
-    # Entferne temporär geladene Audio-Felder, um Mehrfach-Auslösung zu verhindern
-    if "main_audio_widget" in st.session_state:
-        del st.session_state["main_audio_widget"]
 
     with st.spinner("Überlege... 🐊"):
         now = datetime.now()
@@ -295,33 +295,16 @@ def process_user_input(input_text, uploaded_image=None):
     st.rerun()
 
 # =========================================================================
-# REALTIME AUDIO-CALLBACK HANDLING (NATIVE INTEGRATION)
+# REALTIME AUDIO-CALLBACK HANDLING (STABILES STATE-MANAGEMENT)
 # =========================================================================
 def on_main_audio_change():
-    if st.session_state.get("main_audio_widget"):
-        audio_data = st.session_state.main_audio_widget
-        text_from_speech = transcribe_audio(audio_data)
-        if text_from_speech:
-            process_user_input(text_from_speech)
+    if st.session_state.get("main_audio_widget") is not None:
+        st.session_state["main_audio_ready"] = True
 
-def on_card_audio_change(card_question, card_answer):
+def on_card_audio_change():
     key = f"card_audio_widget_{st.session_state.card_idx}"
-    if st.session_state.get(key):
-        audio_data = st.session_state[key]
-        text_from_speech = transcribe_audio(audio_data)
-        if text_from_speech:
-            try:
-                q_response = client.chat.completions.create(
-                    model="gpt-4o-mini",
-                    messages=[
-                        {"role": "system", "content": "Du bist ein kompakter Lerncoach. Beantworte die Schülerfrage zu dieser Karteikarten-Antwort extrem kurz, präzise, verständlich und ohne Begrüßungsfloskeln."},
-                        {"role": "user", "content": f"Karteikarten-Frage: {card_question}\nKarteikarten-Antwort: {card_answer}\nSchüler-Nachfrage dazu: {text_from_speech}"}
-                    ],
-                    temperature=0.3
-                )
-                st.session_state.card_ki_response = q_response.choices[0].message.content.strip()
-            except Exception as e:
-                st.session_state.card_ki_response = f"Fehler bei der Audio-Anfrage: {e}"
+    if st.session_state.get(key) is not None:
+        st.session_state["card_audio_ready"] = True
 
 # =========================================================================
 # ACCOUNT-SPEZIFISCHE LIVE-INITIALISIERUNG
@@ -358,7 +341,6 @@ with st.sidebar:
     st.title("StudyTutor Pro 🐊")
     st.write("---")
     
-    # KROKO-GAMIFICATION VISUALISIERUNG
     st.subheader("🐊 Deine Kroko-Stats")
     level = (st.session_state.xp // 100) + 1
     xp_in_level = st.session_state.xp % 100
@@ -405,9 +387,7 @@ with st.sidebar:
     st.write("---")
 
     st.subheader("📸 Lernstoff einsenden")
-    uploaded_img = st.file_uploader("Bild/Angabe hochladen:", type=["jpg", "jpeg", "png"])
-    if uploaded_img and st.button("🚀 Bild abschicken", use_container_width=True):
-        process_user_input("", uploaded_img)
+    uploaded_img = st.file_uploader("Bild/Angabe hochladen:", type=["jpg", "jpeg", "png"], key="main_image_uploader")
     st.write("---")
 
     if st.button("🗑️ Reset", use_container_width=True):
@@ -425,24 +405,36 @@ with st.sidebar:
         st.rerun()
 
 # =========================================================================
-# MAIN CHAT (GEMINI-STYLE INTEGRATED INPUT BAR)
+# MAIN CHAT (INTEGRIERTE GEMINI-STYLE BAR MIT STABILEM AUDIO-CATCH)
 # =========================================================================
 with st.expander(f"💬 KI-Lerncoach & Mentor (Konto: {st.session_state.user_id})", expanded=True):
+    # AUDIO-FLAG ABFANGEN VOR DEM RENDERN
+    if st.session_state.get("main_audio_ready") and st.session_state.get("main_audio_widget"):
+        audio_data = st.session_state.main_audio_widget
+        st.session_state["main_audio_ready"] = False  # Flag direkt entlasten
+        text_from_speech = transcribe_audio(audio_data)
+        if text_from_speech:
+            process_user_input(text_from_speech)
+
     for msg in st.session_state.messages[-3:]:
         with st.chat_message(msg["role"]): st.write(msg["content"])
     
     st.write("---")
-    # Das hochentwickelte, horizontal verschmolzene Input-System
-    m_col1, m_col2, m_col3 = st.columns([5, 2, 1], vertical_alignment="center")
+    m_col1, m_col2 = st.columns([6, 2], vertical_alignment="center")
+    
     with m_col1:
-        chat_text = st.text_input("Schreib mir...", label_visibility="collapsed", placeholder="Frag das Krokodil oder nutze das Mikrofon...", key="main_text_input")
+        with st.form("main_chat_form", clear_on_submit=True):
+            f_col1, f_col2 = st.columns([5, 1], vertical_alignment="center")
+            with f_col1:
+                chat_text = st.text_input("Schreib mir...", label_visibility="collapsed", placeholder="Frag das Krokodil...", key="main_text_input")
+            with f_col2:
+                submit_main = st.form_submit_button("🚀", use_container_width=True)
+            
+            if submit_main and chat_text.strip() != "":
+                process_user_input(chat_text, uploaded_img)
+                
     with m_col2:
         st.audio_input("Mikrofon", label_visibility="collapsed", key="main_audio_widget", on_change=on_main_audio_change)
-    with m_col3:
-        submit_main = st.button("🚀", use_container_width=True, key="submit_main_text")
-        
-    if (submit_main or chat_text) and chat_text.strip() != "":
-        process_user_input(chat_text)
 
 # =========================================================================
 # LIVE DASHBOARD STATS
@@ -469,7 +461,7 @@ if critical_subjects:
     for cs in critical_subjects:
         st.warning(f"⚠️ **Kroko-Warnung:** Deine Note in **{cs}** steht kritisch, aber du hast aktuell keine Lernschritte auf deinem Board! Frage den Coach nach einem Lernplan.")
 
-# NOTENSPIEGEL & EIGENES OPTIONEN-FENSTER (POPOVER)
+# NOTENSPIEGEL & EXPANDER FÜR DEN ZIELRECHNER
 if st.session_state.grades:
     st.write(f"### 📝 Aktueller Notenspiegel von {st.session_state.user_id}")
     
@@ -503,7 +495,7 @@ if st.session_state.grades:
         grade_html += f"<div class='grade-badge' style='border-left: 4px solid {color};'><b>{g['subject']}</b>: Note {g['grade']} <span style='font-size:0.75rem; color:#64748b;'>({g['label']})</span></div>"
     st.html(f"<div>{grade_html}</div>")
 
-# Sniper-Fokus Box + LIVE POMODORO-TIMER
+# REINZOOM-FOKUS & POMODORO TIMER
 if selected_focus_id:
     focus_task = next((t for t in st.session_state.tasks if t['id'] == selected_focus_id), None)
     if focus_task:
@@ -525,11 +517,10 @@ if selected_focus_id:
                 status_text.write("🎉 **Sitzung beendet! Zeit für eine Pause!** 🐊")
                 st.balloons()
 
-# Filterung anwenden
 active_tasks = st.session_state.tasks if filter_subject == "Alle Fächer" else [t for t in st.session_state.tasks if t.get("title") == filter_subject]
 
 # =========================================================================
-# REITER SYSTEM FÜR DAS INTERAKTIVE BOARD & KI KARTEIKARTEN
+# REITER SYSTEM (BOARD & INTERAKTIVE KARTEIKARTEN DECK)
 # =========================================================================
 st.write(f"### Workspace von {st.session_state.user_id} ({filter_subject})")
 tab_dashboard, tab_flashcards = st.tabs(["📊 Workspace-Board", "🃏 KI-Karteikarten Deck"])
@@ -587,7 +578,6 @@ with tab_dashboard:
                 save_to_supabase({"tasks": st.session_state.tasks, "messages": st.session_state.messages, "subjects": st.session_state.subjects, "completed_count": st.session_state.completed_count, "grades": st.session_state.grades, "xp": st.session_state.xp, "streak": st.session_state.streak, "flashcards": st.session_state.flashcards})
                 st.rerun()
 
-# 🃏 KI CARTEIKARTEN REITER (FLASHCARDS VISUALISIERUNG & DEEP-DIVE ASYNC FRAGEN)
 with tab_flashcards:
     st.write("### 🃏 Deine interaktiven KI-Karteikarten")
     st.caption("Schreibe dem KI-Coach im Haupt-Chat einfach: 'Erstelle mir Karteikarten für das Thema X', um neue Karten hinzuzufügen!")
@@ -600,6 +590,30 @@ with tab_flashcards:
         
         st.write(f"**Karteikarte {st.session_state.card_idx + 1} von {len(st.session_state.flashcards)}**")
         
+        # KEY FÜR DAS AKTULLE KARTEIKARTEN-AUDIO DEFINIEREN
+        card_audio_key = f"card_audio_widget_{st.session_state.card_idx}"
+
+        # AUDIO-FLAG ABFANGEN BEVOR DIE KARTEIKARTE GERENDERT WIRD
+        if st.session_state.get("card_audio_ready") and st.session_state.get(card_audio_key):
+            audio_data = st.session_state[card_audio_key]
+            st.session_state["card_audio_ready"] = False
+            text_from_speech = transcribe_audio(audio_data)
+            if text_from_speech:
+                with st.spinner("Kroko hört zu... 🐊"):
+                    try:
+                        q_response = client.chat.completions.create(
+                            model="gpt-4o-mini",
+                            messages=[
+                                {"role": "system", "content": "Du bist ein kompakter Lerncoach. Beantworte die Schülerfrage zu dieser Karteikarten-Antwort extrem kurz, präzise, verständlich und ohne Begrüßungsfloskeln."},
+                                {"role": "user", "content": f"Karteikarten-Frage: {card['question']}\nKarteikarten-Antwort: {card['answer']}\nSchüler-Nachfrage dazu: {text_from_speech}"}
+                            ],
+                            temperature=0.3
+                        )
+                        st.session_state.card_ki_response = q_response.choices[0].message.content.strip()
+                    except Exception as e:
+                        st.session_state.card_ki_response = f"Fehler bei der Audio-Anfrage: {e}"
+                st.rerun()
+
         if not st.session_state.card_flipped:
             st.info(f"❓ **FRAGE / BEGRIFF:**\n\n{card['question']}")
         else:
@@ -610,36 +624,41 @@ with tab_flashcards:
             with q_col1:
                 st.markdown("##### 🤖 Nachfrage zur Antwort")
                 
-                # Verschmolzene Inline-Leiste für Text & Audio bei den Karteikarten
-                fc_i_col1, fc_i_col2, fc_i_col3 = st.columns([5, 3, 1], vertical_alignment="center")
-                with fc_i_col1:
-                    user_card_q = st.text_input("Frag das Krokodil direkt:", label_visibility="collapsed", placeholder="Verstehst du etwas nicht?", key=f"card_q_field_{st.session_state.card_idx}")
-                with fc_i_col2:
-                    st.audio_input("Mikrofon", label_visibility="collapsed", key=f"card_audio_widget_{st.session_state.card_idx}", on_change=on_card_audio_change, args=(card['question'], card['answer']))
-                with fc_i_col3:
-                    submit_card = st.button("🚀", key=f"btn_card_q_{st.session_state.card_idx}", use_container_width=True)
+                fc_col1, fc_col2 = st.columns([6, 3], vertical_alignment="center")
                 
-                if (submit_card or user_card_q) and user_card_q.strip():
-                    with st.spinner("Kroko überlegt... 🐊"):
-                        try:
-                            q_response = client.chat.completions.create(
-                                model="gpt-4o-mini",
-                                messages=[
-                                    {"role": "system", "content": "Du bist ein kompakter Lerncoach. Beantworte die Schülerfrage zu dieser Karteikarten-Antwort extrem kurz, präzise, verständlich und ohne Begrüßungsfloskeln."},
-                                    {"role": "user", "content": f"Karteikarten-Frage: {card['question']}\nKarteikarten-Antwort: {card['answer']}\nSchüler-Nachfrage dazu: {user_card_q}"}
-                                ],
-                                temperature=0.3
-                            )
-                            st.session_state.card_ki_response = q_response.choices[0].message.content.strip()
-                        except Exception as e:
-                            st.session_state.card_ki_response = f"Fehler bei der Anfrage: {e}"
-                    st.rerun()
+                with fc_col1:
+                    with st.form(f"card_form_{st.session_state.card_idx}", clear_on_submit=True):
+                        f_c_col1, f_c_col2 = st.columns([5, 1], vertical_alignment="center")
+                        with f_c_col1:
+                            user_card_q = st.text_input("Frag das Krokodil direkt:", label_visibility="collapsed", placeholder="Verstehst du etwas nicht?", key=f"card_q_field_{st.session_state.card_idx}")
+                        with f_c_col2:
+                            submit_card = st.form_submit_button("🚀", use_container_width=True)
+                            
+                        if submit_card and user_card_q.strip():
+                            with st.spinner("Kroko überlegt... 🐊"):
+                                try:
+                                    q_response = client.chat.completions.create(
+                                        model="gpt-4o-mini",
+                                        messages=[
+                                            {"role": "system", "content": "Du bist ein kompakter Lerncoach. Beantworte die Schülerfrage zu dieser Karteikarten-Antwort extrem kurz, präzise, verständlich und ohne Begrüßungsfloskeln."},
+                                            {"role": "user", "content": f"Karteikarten-Frage: {card['question']}\nKarteikarten-Antwort: {card['answer']}\nSchüler-Nachfrage dazu: {user_card_q}"}
+                                        ],
+                                        temperature=0.3
+                                    )
+                                    st.session_state.card_ki_response = q_response.choices[0].message.content.strip()
+                                except Exception as e:
+                                    st.session_state.card_ki_response = f"Fehler bei der Anfrage: {e}"
+                            st.rerun()
+                            
+                with fc_col2:
+                    st.audio_input("Mikrofon", label_visibility="collapsed", key=card_audio_key, on_change=on_card_audio_change)
+                    
             with q_col2:
                 st.markdown("##### 🐊 Krokos Blitz-Erklärung")
                 if st.session_state.card_ki_response:
                     st.info(st.session_state.card_ki_response)
                 else:
-                    st.caption("Stelle links eine Frage (Tippen oder Sprechen), um hier eine blitzschnelle Erklärung zu erhalten.")
+                    st.caption("Stelle links eine Frage (Tippen oder Sprechen), um hier eine Erklärung zu erhalten.")
         
         st.write("---")
         c_col1, c_col2, c_col3, c_col4 = st.columns([1, 2, 1, 1])

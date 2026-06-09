@@ -324,11 +324,38 @@ with st.sidebar:
     st.write(f"**Level {level}** ({(st.session_state.xp % 100)}/100 XP)")
     st.progress((st.session_state.xp % 100) / 100)
     st.write(f"🔥 **Lern-Streak:** {st.session_state.streak} Tage")
-    st.write("---")
     
-    selected_user = st.selectbox("Profil wechseln:", options=st.session_state.available_profiles)
+    # REPARIERTE UND ERWEITERTE PROFILVERWALTUNG
+    st.write("---")
+    st.subheader("👥 Profil-Verwaltung")
+    if st.session_state.user_id not in st.session_state.available_profiles:
+        st.session_state.available_profiles.append(st.session_state.user_id)
+    st.session_state.available_profiles = sorted(list(set(st.session_state.available_profiles)))
+    
+    # FIXED INDEX: Verhindert das automatische Zurückspringen auf Index 0
+    current_profile_idx = st.session_state.available_profiles.index(st.session_state.user_id)
+    selected_user = st.selectbox("Profil wechseln:", options=st.session_state.available_profiles, index=current_profile_idx)
     if selected_user != st.session_state.user_id:
         st.session_state.user_id = selected_user; st.rerun()
+        
+    with st.expander("➕ / 🗑️ Profile verwalten"):
+        new_prof_name = st.text_input("Neues Profil erstellen:", placeholder="Name eingeben...")
+        if st.button("Profil anlegen 🚀", use_container_width=True):
+            if new_prof_name and new_prof_name.strip() not in st.session_state.available_profiles:
+                cleaned_name = new_prof_name.strip()
+                st.session_state.available_profiles.append(cleaned_name)
+                st.session_state.user_id = cleaned_name
+                save_all_to_db()
+                st.success(f"Profil '{cleaned_name}' gestartet!")
+                st.rerun()
+        
+        if len(st.session_state.available_profiles) > 1:
+            if st.button("🗑️ Aktuelles Profil löschen", use_container_width=True, type="secondary"):
+                dead_user = st.session_state.user_id
+                st.session_state.available_profiles.remove(dead_user)
+                st.session_state.user_id = st.session_state.available_profiles[0]
+                st.warning(f"Profil '{dead_user}' wurde entfernt.")
+                st.rerun()
 
 # =========================================================================
 # MODUS 1: DASHBOARD & WORKSPACE BOARD
@@ -399,7 +426,7 @@ if st.session_state.app_mode == "Dashboard":
                 st.session_state.xp += 10; save_all_to_db(); st.rerun()
 
 # =========================================================================
-# MODUS 2: KARTEIKARTEN-TRAINER (FIXED!)
+# MODUS 2: KARTEIKARTEN-TRAINER (MIT KI-GENERATOR UPGRADE!)
 # =========================================================================
 elif st.session_state.app_mode == "Karteikarten":
     st.title("🃏 Intelligenter Karteikarten-Trainer")
@@ -409,7 +436,6 @@ elif st.session_state.app_mode == "Karteikarten":
         idx = st.session_state.card_idx % len(st.session_state.flashcards)
         card = st.session_state.flashcards[idx]
         
-        # KEYERROR FIX DURCH .get() METHODE
         fach = card.get('subject', 'Allgemein')
         frage = card.get('question', 'Keine Frage hinterlegt')
         antwort = card.get('answer', 'Keine Antwort hinterlegt')
@@ -438,29 +464,69 @@ elif st.session_state.app_mode == "Karteikarten":
         st.info("Dein Karteikastendeck ist aktuell leer. Generiere neue Karten über das Formular unten!")
 
     st.write("---")
-    st.subheader("➕ Neue Lernkarten hinzufügen")
-    with st.form("add_card_form"):
-        f_sub = st.selectbox("Fach:", st.session_state.subjects)
-        f_q = st.text_input("Frage:")
-        f_a = st.text_input("Antwort:")
-        if st.form_submit_button("Karte einpacken"):
-            if f_q and f_a:
-                st.session_state.flashcards.append({"subject": f_sub, "question": f_q, "answer": f_a})
-                save_all_to_db(); st.success("Karte hinzugefügt!"); st.rerun()
+    
+    # NEUES FEATURE: REINES KI-GENERATOR-FENSTER
+    with st.expander("🤖 Blitzschnelle KI-Karten schmieden", expanded=False):
+        st.markdown("Lass die KI maßgeschneiderte Lernkarten generieren – perfekt angepasst an das Thema und die gewünschte Schwierigkeit.")
+        with st.form("ki_card_generation_form"):
+            ki_sub = st.selectbox("Fach:", st.session_state.subjects, key="ki_card_sub")
+            ki_topic = st.text_input("Thema / Stoffgebiet:", placeholder="z.B. Zellatmung, Bruchrechnen, Vokabeln Unit 4...")
+            ki_diff = st.select_slider("Schwierigkeitsgrad:", options=["Sehr Einfach", "Mittel", "Schwer / Knifflig"], value="Mittel")
+            ki_count = st.number_input("Anzahl der Karten:", min_value=1, max_value=12, value=5)
+            ki_custom_wish = st.text_input("Spezielle Zusatzwünsche an Kroko:", placeholder="z.B. Fokus auf Jahreszahlen, Kurze Antworten, etc.")
+            
+            if st.form_submit_button("🔥 KI-Karten erschaffen"):
+                if ki_topic:
+                    with st.spinner("Kroko designt deine Premium-Karten... 🐊"):
+                        ki_prompt = f"""Erstelle exakt {ki_count} Karteikarten für das Schulfach '{ki_sub}' zum Thema '{ki_topic}'.
+                        Schwierigkeit: {ki_diff}. Extra-Wünsche: {ki_custom_wish}.
+                        Antworte AUSSCHLIESSLICH im folgendem validen JSON-Format:
+                        {{
+                          "flashcards": [
+                            {{ "subject": "{ki_sub}", "question": "Fragetext", "answer": "Antworttext" }}
+                          ]
+                        }}"""
+                        try:
+                            res = client.chat.completions.create(
+                                model="gpt-4o-mini", messages=[{"role": "user", "content": ki_prompt}],
+                                response_format={"type": "json_object"}, temperature=0.6
+                            )
+                            generated_cards = json.loads(res.choices[0].message.content.strip()).get("flashcards", [])
+                            for c in generated_cards:
+                                st.session_state.flashcards.append({
+                                    "subject": c.get("subject", ki_sub), "question": c.get("question", ""), "answer": c.get("answer", "")
+                                })
+                            save_all_to_db()
+                            st.success(f"🎉 {len(generated_cards)} Karten wurden in den Stapel gepackt!")
+                            time.sleep(1); st.rerun()
+                        except Exception as e: st.error(f"Fehler beim Generieren: {e}")
+                else:
+                    st.warning("Bitte gib ein Thema ein, damit Kroko weiß, was er abfragen soll!")
+
+    with st.expander("➕ Klassisch manuelle Lernkarte hinzufügen", expanded=False):
+        with st.form("add_card_form"):
+            f_sub = st.selectbox("Fach:", st.session_state.subjects)
+            f_q = st.text_input("Frage:")
+            f_a = st.text_input("Antwort:")
+            if st.form_submit_button("Karte einpacken"):
+                if f_q and f_a:
+                    st.session_state.flashcards.append({"subject": f_sub, "question": f_q, "answer": f_a})
+                    save_all_to_db(); st.success("Karte hinzugefügt!"); st.rerun()
 
 # =========================================================================
-# MODUS 3: NOTENSPIEGEL (ÖSTERREICH-GEWICHTUNG & ENTFERNEN UPGRADE!)
+# MODUS 3: NOTENSPIEGEL (ECHTE GEWICHTUNG NACH ÖSTERREICHISCHER RECHNUNG)
 # =========================================================================
 elif st.session_state.app_mode == "Notenspiegel":
     st.title("📝 Dein persönlicher Notenspiegel (Österreichische Gewichtung)")
-    st.markdown("Verwalte deine schulischen Leistungen. Schularbeiten (SA) und die restliche Mitarbeit/Tests (MÜ) werden nach österreichischem System zu je 50% gewichtet.")
+    st.markdown("Verwalte deine Noten nach dem österreichischen AHS/BMHS-System: Schularbeiten zählen **50%**, Tests **25%** und die Mitarbeit **25%** der Gesamtnote.")
     
     with st.form("grade_form"):
         g_col1, g_col2, g_col3 = st.columns(3)
         with g_col1: g_sub = st.selectbox("Fach:", st.session_state.subjects)
         with g_col2: g_val = st.number_input("Note (1-5):", min_value=1.0, max_value=5.0, step=1.0)
-        with g_col3: g_type = st.selectbox("Leistungsart:", ["Schularbeit (SA)", "Test / Mitarbeitsüberprüfung (MÜ)"])
-        g_lbl = st.text_input("Beschreibung (z.B. 1. SA, Vokabeltest):")
+        # UPGRADE: DIE DREI RECHTLICHEN LEISTUNGSARTEN IN ÖSTERREICH
+        with g_col3: g_type = st.selectbox("Leistungsart:", ["Schularbeit (SA)", "Test", "Mitarbeit"])
+        g_lbl = st.text_input("Beschreibung (z.B. 1. Schularbeit, Grammatiktest, Referat):")
         if st.form_submit_button("Note eintragen 📝"):
             st.session_state.grades.append({
                 "subject": g_sub, "grade": g_val, "label": g_type, "desc": g_lbl, "date": datetime.now().strftime("%d.%m.%Y")
@@ -468,35 +534,48 @@ elif st.session_state.app_mode == "Notenspiegel":
             save_all_to_db(); st.success("Eingetragen!"); st.rerun()
 
     if st.session_state.grades:
-        st.write("### 📈 Deine Fachübersichten & Schnitte")
+        st.write("### 📈 Deine Fachübersichten & präzise Schnitte")
         for s in st.session_state.subjects:
             sub_grades = [g for g in st.session_state.grades if g["subject"] == s]
             if sub_grades:
-                # ÖSTERREICH-SYSTEM LOGIK: SA zählt 50%, MÜ/Tests zählen 50%
-                sa_list = [g["grade"] for g in sub_grades if "Schularbeit" in g.get("label", "")]
-                mu_list = [g["grade"] for g in sub_grades if "Schularbeit" not in g.get("label", "")]
+                # OPTIMIERTE ÖSTERREICH-LOGIK: Dynamische Gewichtungsverteilung
+                sa_list = [g["grade"] for g in sub_grades if g.get("label") == "Schularbeit (SA)"]
+                test_list = [g["grade"] for g in sub_grades if g.get("label") == "Test"]
+                mit_list = [g["grade"] for g in sub_grades if g.get("label") == "Mitarbeit"]
                 
-                if sa_list and mu_list:
-                    sa_avg = sum(sa_list) / len(sa_list)
-                    mu_avg = sum(mu_list) / len(mu_list)
-                    avg = (sa_avg * 0.5) + (mu_avg * 0.5)
-                    calc_details = f"(SA-Schnitt: {sa_avg:.1f} [50%] | MÜ-Schnitt: {mu_avg:.1f} [50%])"
-                elif sa_list:
+                has_sa, has_test, has_mit = len(sa_list) > 0, len(test_list) > 0, len(mit_list) > 0
+                
+                # Berechnung auf Basis der vorhandenen Notenkategorien
+                if has_sa and has_test and has_mit:
+                    avg = ( (sum(sa_list)/len(sa_list)) * 0.50 ) + ( (sum(test_list)/len(test_list)) * 0.25 ) + ( (sum(mit_list)/len(mit_list)) * 0.25 )
+                    details = f"(SA: 50% | Test: 25% | Mitarbeit: 25%)"
+                elif has_sa and has_test:
+                    avg = ( (sum(sa_list)/len(sa_list)) * 0.65 ) + ( (sum(test_list)/len(test_list)) * 0.35 )
+                    details = f"(Gewichtet: SA 65% / Test 35%)"
+                elif has_sa and has_mit:
+                    avg = ( (sum(sa_list)/len(sa_list)) * 0.60 ) + ( (sum(mit_list)/len(mit_list)) * 0.40 )
+                    details = f"(Gewichtet: SA 60% / Mitarbeit 40%)"
+                elif has_test and has_mit:
+                    avg = ( (sum(test_list)/len(test_list)) * 0.50 ) + ( (sum(mit_list)/len(mit_list)) * 0.50 )
+                    details = f"(Gewichtet: Test 50% / Mitarbeit 50% — Keine SA)"
+                elif has_sa:
                     avg = sum(sa_list) / len(sa_list)
-                    calc_details = "(Nur Schularbeiten vorhanden)"
+                    details = "(Bisher nur Schularbeitsnote)"
+                elif has_test:
+                    avg = sum(test_list) / len(test_list)
+                    details = "(Bisher nur Testnote)"
                 else:
-                    avg = sum(mu_list) / len(mu_list)
-                    calc_details = "(Nur Mitarbeit/Tests vorhanden)"
+                    avg = sum(mit_list) / len(mit_list)
+                    details = "(Bisher nur Mitarbeit)"
                 
-                st.markdown(f"#### **{s}** — Aktueller Stand: **{avg:.2f}**")
-                st.caption(calc_details)
+                st.markdown(f"#### **{s}** — Errechneter Stand: **{avg:.2f}**")
+                st.caption(f"ℹ️ *{details}*")
                 
-                # LISTE MIT LÖSCH-OPTION (FÜR UNABSICHTLICHE EINTRÄGE)
                 for idx, g in enumerate(st.session_state.grades):
                     if g["subject"] == s:
                         g_col, del_col = st.columns([5, 1])
                         with g_col:
-                            st.html(f"<span class='grade-badge'>{g['grade']}</span> <b>{g.get('label','')}</b>: {g.get('desc','')} ({g['date']})")
+                            st.html(f"<span class='grade-badge'>{int(g['grade'])}</span> <b>{g.get('label','')}</b>: {g.get('desc','')} ({g['date']})")
                         with del_col:
                             if st.button("🗑️", key=f"del_g_{idx}", help="Note löschen"):
                                 st.session_state.grades.pop(idx)
@@ -506,14 +585,13 @@ elif st.session_state.app_mode == "Notenspiegel":
         st.info("Noch keine Noten eingetragen. Mach deine Statistiken bereit!")
 
 # =========================================================================
-# MODUS 4: KROKO-LERNZENTRUM (MULTIMODALER THEMEN-ZERLEGER UPGRADE!)
+# MODUS 4: KROKO-LERNZENTRUM
 # =========================================================================
 elif st.session_state.app_mode == "Lernzentrum":
     st.html("<div class='gaming-container'>")
     st.html("<h1 class='gaming-title'>🎯 Kroko-Lernzentrum (Fokus-Modus)</h1>")
-    st.markdown("Willkommen in deiner ablenkungsfreien Arena. Bringe der KI deine Handschrift bei, verarbeite Korrektur-Bilder und schalte Quest-Reihen frei.")
+    st.markdown("Welcome in der Arena. Bringe der KI deine Handschrift bei, verarbeite Korrektur-Bilder und schalte Quest-Reihen frei.")
     
-    # HANDSCHRIFT PROFILE SETUP
     st.write("---")
     st.subheader("✍️ Musterschrift-Gedächtnis (Schrift lernen)")
     with st.expander("Bringe Kroko deine persönliche Handschrift bei (Einmaliges Setup)"):
@@ -536,7 +614,6 @@ elif st.session_state.app_mode == "Lernzentrum":
         if st.session_state.handwriting_analysis:
             st.caption(f"**Gespeichertes Schriftprofil:** {st.session_state.handwriting_analysis}")
 
-    # SÜNDENREGISTER / KUCKUCKSEIER
     st.write("---")
     st.subheader("🥚 Deine aktiven Kuckuckseier (Fehler-Verwalter)")
     
@@ -570,7 +647,6 @@ elif st.session_state.app_mode == "Lernzentrum":
     else:
         st.info("Alle Fehler bereinigt! Dein Radar ist komplett grün.")
 
-    # MULTI UPLOAD IM SCANNER
     with st.expander("📸 Korrigierte Arbeiten einsenden (Multi-Upload / Max. 4 Bilder)"):
         uploaded_corrs = st.file_uploader("Bilder hochladen:", type=["jpg", "jpeg", "png"], accept_multiple_files=True, key="multi_corr_uploader")
         corr_sub = st.selectbox("Für welches Fach?", st.session_state.subjects)
@@ -594,7 +670,6 @@ elif st.session_state.app_mode == "Lernzentrum":
                     except Exception: pass
                 save_all_to_db(); st.rerun()
 
-    # THEMEN ZERLEGER (UPGRADED MIT SPRACHCHAT & BILD-UPLOAD)
     st.write("---")
     st.subheader("🗺️ Deine active Quest-Reihe (KI-Themen-Zerleger)")
     quests_blocked = len(st.session_state.kuckuckseier) > 0
@@ -610,7 +685,6 @@ elif st.session_state.app_mode == "Lernzentrum":
             if st.form_submit_button("🔥 Quest-Reihe schmieden!"):
                 final_topic_text = q_top.strip() if q_top else ""
                 
-                # 1. Sprache transkribieren falls vorhanden
                 if q_aud:
                     with st.spinner("Transkribiere Audio..."):
                         spoken_text = transcribe_audio(q_aud)
@@ -619,7 +693,6 @@ elif st.session_state.app_mode == "Lernzentrum":
                 
                 if final_topic_text or q_img:
                     with st.spinner("Kroko baut die Quest aus deinen Daten... 🐊"):
-                        # Basis-Prompt bauen
                         main_prompt = f"""Zerlege das Thema/den Stoff für das Fach '{q_sub}' in exakt 3 logische, aufeinander aufbauende Quests zum Lernen.
                         Nutze den angegebenen Text sowie eventuelle Informationen aus dem hochgeladenen Bild des Lernstoffs.
                         Text-Input: {final_topic_text}
